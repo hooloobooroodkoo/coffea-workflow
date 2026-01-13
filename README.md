@@ -1,4 +1,3 @@
----
 
 This prototype introduces a **workflow layer** on top of Coffea implemented as a submodule:
 - workflows are described declaratively,
@@ -52,7 +51,7 @@ It demonstrates how an existing Coffea analysis (processor + helper code) can be
 
 ### The user:
 Keeps their existing analysis code (processor, utils, etc.)
-1. Adds a workflow configuration (YAML)
+1. Adds a workflow configuration (YAML):
 ```python
 # agc_ttba.yaml
 workflow:
@@ -152,6 +151,7 @@ workflow:
       params:
         merge_strategy: "coffea_accumulator"
 ```
+
 2. Adds small wrapper functions `agc_ttbar\wrappers.py`to expose:
 ```python
 # agc_ttbar/wrappers.py
