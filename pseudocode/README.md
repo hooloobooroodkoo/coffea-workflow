@@ -113,9 +113,7 @@ class ChunkAnalysis(ArtifactBase):
     """
     Internal artifact. User doesn't use this artifact, it's a helping artifact that is produced by Analysis artifact to process one chunk.
     Output example:
-        - None: "fileset.pkl"
-        - "by_dataset": "fileset_dataset?.pkl"
-        - "percentage_per_file": "fileset_?_?_percent.pkl"
+        - coffea accumulator
     If analysis breaks then it doesn't create an output for that chunk. But Analysis artifact continues the processing of the rest.
     And will identify the missing one when rerunning analysis again.
     """
