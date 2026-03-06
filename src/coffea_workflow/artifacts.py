@@ -56,9 +56,22 @@ class Chunking(ArtifactBase):
     produced by Analysis artifact(external) to execute splitting strategy.
     Returns fileset chunks based on splitting strategy.
     Its producer's output example (depends on splitting strategy):
-        - None: "fileset.json"
-        - "by_dataset": "fileset_dataset1.json, fileset_dataset2.json"
-        - "percentage_per_file": "fileset_0_10_percent.json", "fileset_10_20_percent.json", ... "fileset_90_100_percent.json"
+        - "by_dataset":
+            .cache/Chunking/<identity>/ 
+                manifest.json
+                fileset_datasetA.json
+                fileset_datasetB.json
+                
+        - "percentage_per_file":
+            .cache/Chunking/<identity>/
+                manifest.json
+                fileset_0_20_percent.json
+                fileset_20_40_percent.json
+                ...
+                
+        - None:
+            .cache/Chunking/<identity>/
+                filset.json
     """
     fileset: Fileset
     split_strategy: str
@@ -79,6 +92,7 @@ class ChunkAnalysis(ArtifactBase):
     by Analysis artifact to process one chunk.
     Its producer's output example:
         - coffea acc (this should be the outcome of user specified builder)
+        - .cache/ChunkAnalysis/<chunk_identity>/payload.pkl
     This file is immediately merged to the previous chunk coffea accumulator in Analysis.
     If analysis breaks then it doesn't create an output for that chunk. But Analysis artifact continues the processing of the rest.
     And will identify the missing one when rerunning analysis again.
@@ -120,13 +134,16 @@ class Analysis(ArtifactBase):
     Ignores failers per chunk but tracks failed chunks.
     Merges whatever was successfully processed in ChunkAnalysis into one output. 
     Returns merged output and report failed chunks.
+    - .cache/Analysis/<analysis_identity>/payload.pkl (with merged output)
     """
     name: str
+    fileset: Fileset
     builder: str
 
     def keys(self):
         return {
             "name": self.name,
+            "fileset": self.fileset,
             "builder": self.builder
         }
 
