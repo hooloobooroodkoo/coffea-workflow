@@ -113,7 +113,7 @@ class ChunkAnalysis(ArtifactBase):
     """
     Internal artifact. User doesn't use this artifact, it's a helping artifact that is produced by Analysis artifact to process one chunk.
     Output example:
-        - coffea accumulator
+        - coffea acc
     If analysis breaks then it doesn't create an output for that chunk. But Analysis artifact continues the processing of the rest.
     And will identify the missing one when rerunning analysis again.
     """
@@ -279,8 +279,8 @@ def split_fileset(*, art: Chunking, deps: Deps, out: Path, config: RunConfig) ->
 
     elif splitting_strategy == "percentage_per_file":
         p = self.percentage  # default is 20, we want in one chunk(fileset) 20% of each dataset
-        if 100 % p != 0:
-            raise ValueError("For this scheme, percentage must divide 100 evenly (20, 25, 10, etc).")
+        # if 100 % p != 0:
+        #     raise ValueError("For this scheme, percentage must divide 100 evenly (20, 25, 10, etc).")
 
         # how many bins with step p
         bins = [(start, start + p) for start in range(0, 100, p)]
@@ -534,12 +534,12 @@ step_plotting = Step(
 										builder = "analysis:plot_results"
 								)		
 								   
-workflow = Workflow(version='1.0')
+workflow = Workflow()
 workflow.add(step_fileset)
 workflow.add(step_analysis, depends_on=[step_fileset])
 workflow.add(step_plotting, depends_on=[step_analysis])
 
-config = RunConfig(split_strategy="dataset" | "percentage_per_file", cache_dir=".cache", percentage=20)
+config = RunConfig(split_strategy="by_dataset" | "percentage_per_dataset" | None, cache_dir=".cache", percentage=20)
 
 result = render(workflow, config)	
 

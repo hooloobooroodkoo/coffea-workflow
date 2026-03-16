@@ -24,6 +24,9 @@ def _load_object(path: str) -> Any:
     except AttributeError as e:
         raise AttributeError(f"Object '{attr}' not found in module '{mod_name}'") from e
 
+def _split_fileset():
+    pass
+
 @producer(Fileset)
 def make_fileset(*, art: Fileset, deps: Deps, out: Path, config: RunConfig) -> None:
     # finds and calls the function that user specified in builder
