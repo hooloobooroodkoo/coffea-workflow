@@ -55,33 +55,24 @@ class Chunking(ArtifactBase):
     Internal artifact. User doesn't use this artifact, it's a helping artifact that is
     produced by Analysis artifact(external) to execute splitting strategy.
     Returns fileset chunks based on splitting strategy.
-    Its producer's output example (depends on splitting strategy):
-        - "by_dataset":
-            .cache/Chunking/<identity>/ 
-                manifest.json
-                fileset_datasetA.json
-                fileset_datasetB.json
-                
-        - "percentage_per_file":
-            .cache/Chunking/<identity>/
-                manifest.json
-                fileset_0_20_percent.json
-                fileset_20_40_percent.json
-                ...
-                
-        - None:
-            .cache/Chunking/<identity>/
-                filset.json
+    Its producer writes:
+        .cache/Chunking/<identity>/
+            manifest.json
+            fileset_chunk_0.json
+            fileset_chunk_1.json
+            ...
     """
     fileset: Fileset
-    split_strategy: str
-    percentage: int
+    split_strategy: str | None
+    percentage: int | None
+    datasets: tuple[str, ...] | None = None
 
     def keys(self):
         return {
             "fileset": self.fileset,
             "split_strategy": self.split_strategy,
             "percentage": self.percentage,
+            "datasets": self.datasets,
         }
 
 @register_artifact

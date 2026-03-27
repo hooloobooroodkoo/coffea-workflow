@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any
 import cloudpickle
 from .artifacts import Fileset, Analysis,Chunking, ChunkAnalysis
 from .deps import Deps
@@ -24,9 +24,6 @@ def _load_object(path: str) -> Any:
     except AttributeError as e:
         raise AttributeError(f"Object '{attr}' not found in module '{mod_name}'") from e
 
-def _split_fileset():
-    pass
-
 @producer(Fileset)
 def make_fileset(*, art: Fileset, deps: Deps, out: Path, config: RunConfig) -> None:
     # finds and calls the function that user specified in builder
@@ -40,99 +37,93 @@ def make_fileset(*, art: Fileset, deps: Deps, out: Path, config: RunConfig) -> N
     (out / "fileset.json").write_text(json.dumps(fileset_dict, indent=2, sort_keys=True))
 
 
+def _split_fileset(fileset, strategy=None, datasets=None, percentage=None):
+    """
+    Split fileset into chunks.
+    Input
+    fileset:    {dataset: {"files": {path: treename, ...}}}
+    strategy:   "by_dataset" — one dataset is one chunk; None — all datasets together
+    percentage: integer that divides 100 evenly (20, 25, 50...).
+                Each chunk gets this percentage of each dataset's files.
+    
+    Output
+    List of fileset dicts
+    If strategy only:
+        chunks = _split_fileset(fileset, "by_dataset") - one chunk per dataset
+    If percentage only:
+        chunks = _split_fileset(fileset, percentage=50) - 2 chunks (50 of each dataset in 1st chunk and 2nd)
+        chunks = _split_fileset(fileset, "by_dataset", percentage=50) - N_datasets * 2 chunks
+    """
+    if strategy is not None and strategy != "by_dataset":
+        raise ValueError(
+            f"Unknown strategy '{strategy}'. Use 'by_dataset' or None."
+        )
+    if percentage is not None:
+        if not isinstance(percentage, int) or not (1 <= percentage <= 100) or 100 % percentage != 0:
+            raise ValueError(
+                "'percentage' must be an int that divides 100 evenly (e.g. 10, 20, 25, 50)."
+            )
+    
+    if datasets is None:
+        pass
+    elif callable(datasets):
+        fileset = {k: v for k, v in fileset.items() if datasets(k)}
+    else:
+        fileset = {k: fileset[k] for k in datasets if k in fileset}
+    
+    
+  
+    if strategy == "by_dataset":
+        groups = [{name: data} for name, data in fileset.items()]
+    else:
+        groups = [fileset]
+
+    if percentage is None:
+        return groups
+
+    n_chunks = 100 // percentage
+    result = []
+    for group in groups:
+        for bin_idx in range(n_chunks):
+            chunk = {}
+            for dataset, data in group.items():
+                files = data.get("files", {})
+                if not files:
+                    continue
+                file_items = list(files.items())
+                n = len(file_items)
+                chunk_size = max(1, math.ceil(n / n_chunks))
+                start = bin_idx * chunk_size
+                end = min(start + chunk_size, n)
+                if start >= n:
+                    continue
+                chunk[dataset] = {**data, "files": dict(file_items[start:end])}
+            if chunk:
+                result.append(chunk)
+    return result
+
 @producer(Chunking)
 def split_fileset(*, art: Chunking, deps: Deps, out: Path, config: RunConfig) -> None:
-    """
-    Chunks a Fileset based on the splitting strategy. 
-    Warning: In this way I duplicate the fileset.json saving its chunks... Is it crucial?
-    It returns fileset chunks based on splitting strategy(as described in Chunking artifact description)
-    Manifest output  example:
-        - None: "fileset.json"
-        - "by_dataset": {'output_files': {'SingleMu_0': 'fileset_SingleMu_0.json', 'SingleMu_1': 'fileset_SingleMu_1.json'}, 'n_chunks': 2}
-        - "percentage_per_file": {'output_files': {'0_20': 'fileset_0_20_percent.json', '20_40': 'fileset_20_40_percent.json', '40_60': 'fileset_40_60_percent.json', '60_80': 'fileset_60_80_percent.json', '80_100': 'fileset_80_100_percent.json'}, 'n_chunks': 5, 'split_strategy': 'percentage_per_file', 'percentage': 20}
-    """
-    # executor creates fileset and materialize() function called by deps.need() returns the path to fileset.json
     out.mkdir(parents=True, exist_ok=True)
+    fileset = json.loads((deps.need(art.fileset) / "fileset.json").read_text())
 
-    fileset_dir = deps.need(art.fileset) 
-    fileset_path = fileset_dir / "fileset.json"
-    
-    splitting_strategy = config.split_strategy
+    chunks = _split_fileset(
+        fileset,
+        strategy=config.strategy,
+        datasets=list(config.datasets) if config.datasets else None,
+        percentage=config.percentage,
+    )
 
-    # read fileset.json
-    fileset = json.loads(fileset_path.read_text())
+    manifest_files = {}
+    for i, chunk in enumerate(chunks):
+        file_name = f"fileset_chunk_{i}.json"
+        (out / file_name).write_text(json.dumps(chunk, indent=2, sort_keys=True))
+        manifest_files[str(i)] = file_name
 
-    if splitting_strategy == "by_dataset":
-        datasets = list(fileset.keys())
-        datasets_files = {}
-        for dataset in datasets:
-            file = f"fileset_{dataset}.json"
-            out_path = out / file   # where out=self.cache_dir / art.type_name / art.identity() 
-            datasets_files[dataset] = file
-            out_path.write_text(json.dumps({dataset: fileset[dataset]}, indent=2))
-        manifest = {
-            "output_files": datasets_files, 
-            "n_chunks": len(datasets),
-
-        }
-
-    elif splitting_strategy == "percentage_per_file":
-        p = art.percentage  # default is 20, we want in one chunk(fileset) 20% of each dataset and we end up having 5 bins
-        
-        # how many bins with step p
-        bins = [(start, start + p) for start in range(0, 100, p)]
-
-        combined_by_bin = {b: {} for b in bins}  # {(0,20) - {"SingleMu_0": {"files": {file_0, file_1}}, "SingleMu_1": {"files": {file_0, file_1}}}
-                                                # {(20,40) - {"SingleMu_0": {"files": {file_2, file_3}}, "SingleMu_1": {"files": {file_2, file_3}}}....
-
-        for dataset, files in fileset.items():
-            files = files.get("files", {})
-            if not isinstance(files, dict):
-                raise TypeError(f"fileset[{dataset!r}]['files'] must be a dict")
-
-            file_items = list(files.items())
-            n = len(file_items)
-            if n == 0:
-                continue
-
-            # split the files into bins
-            n_bins = len(bins)
-            chunk_size = max(1, math.ceil(n / n_bins))
-
-            for i, (start_pct, end_pct) in enumerate(bins):
-                start = i * chunk_size
-                end = min((i + 1) * chunk_size, n)
-
-                # build the same structure of dataset but reduced and put into a bin
-                reduced_ds = dict(files)
-                reduced_ds["files"] = dict(file_items[start:end])
-                combined_by_bin[(start_pct, end_pct)][dataset] = reduced_ds
-
-        fileset_bins_files = {}
-        for (start_pct, end_pct), combined_fileset in combined_by_bin.items():
-            file_name = f"fileset_{start_pct}_{end_pct}_percent.json"
-            (out / file_name).write_text(json.dumps(combined_fileset, indent=2, sort_keys=True))
-            fileset_bins_files[f"{start_pct}_{end_pct}"] = file_name
-
-        manifest = {
-            "output_files": fileset_bins_files,  
-            "n_chunks": len(fileset_bins_files),     
-            "split_strategy": "percentage_per_file",
-            "percentage": p,
-        }
-
-    else:
-        file_name = "fileset.json"
-        (out / file_name).write_text(json.dumps(fileset, indent=2, sort_keys=True))
-
-        manifest = {
-            "output_files": {"all": file_name},
-            "n_chunks": 1,
-            "split_strategy": None,
-            "percentage": None,
-        }
-
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    (out / "manifest.json").write_text(json.dumps({
+        "output_files": manifest_files,
+        "n_chunks": len(chunks),
+    }, indent=2, sort_keys=True))
 
 @producer(ChunkAnalysis)
 def run_analysis(*, art: ChunkAnalysis, deps: Deps, out: Path, config: RunConfig) -> None:
@@ -161,8 +152,9 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
     # it's an artifact that user is not using - internal
     chunking = Chunking(
         fileset=art.fileset,
-        split_strategy=config.split_strategy,
+        split_strategy=config.strategy,
         percentage=config.percentage,
+        datasets=config.datasets,
     )
     chunk_dir = deps.need(chunking) # self._executor.materialize(Chunking); returns path to .cache_dir / Chunking / hash where all .json chunks are
     manifest_path = chunk_dir / "manifest.json" # manifest contains info about our fileset.json or its chunks .json
