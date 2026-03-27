@@ -141,4 +141,13 @@ class Analysis(ArtifactBase):
 @register_artifact
 @dataclass(frozen=True)
 class Plotting(ArtifactBase):
-    pass
+    name: str
+    analysis: "Analysis"
+    builder: str
+
+    def keys(self):
+        return {
+            "name": self.name,
+            "analysis": self.analysis,
+            "builder": self.builder,
+        }

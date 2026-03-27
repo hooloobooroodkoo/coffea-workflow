@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Any
 import cloudpickle
-from .artifacts import Fileset, Analysis,Chunking, ChunkAnalysis
+from .artifacts import Fileset, Analysis, Chunking, ChunkAnalysis, Plotting
 from .deps import Deps
 from .producers import producer
 from .config import RunConfig
@@ -39,40 +39,48 @@ def make_fileset(*, art: Fileset, deps: Deps, out: Path, config: RunConfig) -> N
 
 def _split_fileset(fileset, strategy=None, datasets=None, percentage=None):
     """
-    Split fileset into chunks.
+    Split the fileset into chunks to enable getting a partial result if one or several
+    of the chunks failed to produce a result while being processed.
+    One chunk is one partial fileset(unique combination of files), these are not usual coffea chunks.
+
+
     Input
     fileset:    {dataset: {"files": {path: treename, ...}}}
     strategy:   "by_dataset" — one dataset is one chunk; None — all datasets together
     percentage: integer that divides 100 evenly (20, 25, 50...).
                 Each chunk gets this percentage of each dataset's files.
-    
+    datasets: list, callable or tuple of datasets' names
+
     Output
     List of fileset dicts
     If strategy only:
         chunks = _split_fileset(fileset, "by_dataset") - one chunk per dataset
     If percentage only:
-        chunks = _split_fileset(fileset, percentage=50) - 2 chunks (50 of each dataset in 1st chunk and 2nd)
-        chunks = _split_fileset(fileset, "by_dataset", percentage=50) - N_datasets * 2 chunks
+        chunks = _split_fileset(fileset, percentage=50) - 2 chunks (50 of each dataset in 1st chunk and 2nd, mixed chunks
+    If strategy and percentage:
+        chunks = _split_fileset(fileset, "by_dataset", percentage=50) - N_datasets * 2 chunks, not mixed chunks
+    If datasets + any/nothing:
+        strategies are only applied to chosen datasets
     """
     if strategy is not None and strategy != "by_dataset":
-        raise ValueError(
-            f"Unknown strategy '{strategy}'. Use 'by_dataset' or None."
-        )
+        raise ValueError(f"Unknown strategy '{strategy}'. Use 'by_dataset' or None.")
     if percentage is not None:
-        if not isinstance(percentage, int) or not (1 <= percentage <= 100) or 100 % percentage != 0:
+        if (
+            not isinstance(percentage, int)
+            or not (1 <= percentage <= 100)
+            or 100 % percentage != 0
+        ):
             raise ValueError(
                 "'percentage' must be an int that divides 100 evenly (e.g. 10, 20, 25, 50)."
             )
-    
+
     if datasets is None:
         pass
     elif callable(datasets):
         fileset = {k: v for k, v in fileset.items() if datasets(k)}
     else:
         fileset = {k: fileset[k] for k in datasets if k in fileset}
-    
-    
-  
+
     if strategy == "by_dataset":
         groups = [{name: data} for name, data in fileset.items()]
     else:
@@ -190,3 +198,12 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
     }
     out.mkdir(parents=True, exist_ok=True)
     (out / "payload.pkl").write_bytes(cloudpickle.dumps(payload))
+
+@producer(Plotting)
+def make_plot(*, art: Plotting, deps: Deps, out: Path, config: RunConfig) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    analysis_dir = deps.need(art.analysis)
+    payload = cloudpickle.loads((analysis_dir / "payload.pkl").read_bytes())
+    fn = _load_object(art.builder)
+    fn(payload["merged"])
+    (out / "done.txt").write_text("done")
