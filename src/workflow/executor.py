@@ -54,7 +54,7 @@ class Executor:
 
     def materialize(self, art: Artifact) -> Path:
         out = self.path_for(art)
-        if out.exists():
+        if not getattr(art, "always_rerun", False) and out.exists():
             return out
 
         fn = get_producer(type(art))

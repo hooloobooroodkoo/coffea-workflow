@@ -1,7 +1,9 @@
+import json
 import typing
+import cloudpickle
 from .config import RunConfig
 from .workflow import Workflow
-from .artifacts import ArtifactBase
+from .artifacts import ArtifactBase, Fileset, Analysis, Plotting
 from pathlib import Path
 from .executor import Executor
 
@@ -62,6 +64,33 @@ def _build_artifact(step_type, name, builder, upstream):
     return step_type(**kwargs)
 
 
+def _load_step_result(step_type, path: Path):
+    if step_type is Fileset:
+        return json.loads((path / "fileset.json").read_text())
+    if step_type is Analysis:
+        return cloudpickle.loads((path / "payload.pkl").read_bytes())
+    if step_type is Plotting:
+        payload_path = path / "payload.pkl"
+        return cloudpickle.loads(payload_path.read_bytes()) if payload_path.exists() else None
+    return None
+
+
+def _print_summary(step_results: dict) -> None:
+    print("\n=== Run Summary ===")
+    for name, (step_type, result) in step_results.items():
+        if step_type is Analysis and result is not None:
+            ok = result["n_chunks_ok"]
+            total = result["n_chunks_total"]
+            failures = result["failures"]
+            marker = "✓" if not failures else "!"
+            print(f"  {marker}  {name:<30} {step_type.__name__:<20} {ok}/{total} chunks OK")
+            for f in failures:
+                print(f"       FAILED {f['chunk_file']}: {f['error']}")
+        else:
+            print(f"  ✓  {name:<30} {step_type.__name__}")
+    print()
+
+
 def _print_dag(workflow: Workflow) -> None:
     print("Workflow DAG:")
     if not workflow.steps:
@@ -95,8 +124,8 @@ def render(workflow: Workflow, config: RunConfig):
     order = _topo_order(num_steps, workflow.edges)
 
     artifact_by_idx = {}
-    artifacts_by_name = {}
     paths_by_name = {}
+    step_results = {}  # name -> (step_type, loaded result)
 
     for idx in order:
         step = workflow.steps[idx]
@@ -112,7 +141,13 @@ def render(workflow: Workflow, config: RunConfig):
         print(f"  -> materialized at {path}")
 
         artifact_by_idx[idx] = artifact
-        artifacts_by_name[step.name] = step_name
-        paths_by_name[step.name] = path
+        paths_by_name[step_name] = path
+        step_results[step_name] = (step.step_type, _load_step_result(step.step_type, path))
 
-    return {"paths": paths_by_name, "artifacts": artifacts_by_name, "order": [workflow.steps[i].name for i in order]}
+    _print_summary(step_results)
+
+    return {
+        "paths": paths_by_name,
+        "results": {name: result for name, (_, result) in step_results.items()},
+        "order": [workflow.steps[i].name for i in order],
+    }

@@ -207,5 +207,5 @@ def make_plot(*, art: Plotting, deps: Deps, out: Path, config: RunConfig) -> Non
     analysis_dir = deps.need(art.analysis)
     payload = cloudpickle.loads((analysis_dir / "payload.pkl").read_bytes())
     fn = _load_object(art.builder)
-    fn(payload["merged"])
-    (out / "done.txt").write_text("done")
+    plot_result = fn(payload["merged"])
+    (out / "payload.pkl").write_bytes(cloudpickle.dumps(plot_result))

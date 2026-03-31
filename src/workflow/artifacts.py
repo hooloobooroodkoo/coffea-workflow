@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol,runtime_checkable
+from typing import Any, Mapping, Protocol, runtime_checkable
 from .identity import hash_identity
 
 
@@ -20,6 +20,8 @@ class Artifact(Protocol):
 
 @dataclass(frozen=True)
 class ArtifactBase:
+    always_rerun = False
+
     def keys(self):
         raise NotImplementedError
 
@@ -141,6 +143,8 @@ class Analysis(ArtifactBase):
 @register_artifact
 @dataclass(frozen=True)
 class Plotting(ArtifactBase):
+    always_rerun = True
+
     name: str
     analysis: "Analysis"
     builder: str
