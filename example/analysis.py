@@ -60,8 +60,10 @@ class Processor(processor.ProcessorABC):
 
 def run_analysis(fileset):
     executor_inst = processor.FuturesExecutor()
-    run = processor.Runner(executor=executor_inst, schema=schemas.NanoAODSchema)
-    return run(fileset, "Events", Processor())
+    run = processor.Runner(executor=executor_inst, schema=schemas.NanoAODSchema, savemetrics=True,
+                        use_result_type=True)
+    result = run(fileset, Processor())
+    return result
 
 def plot_results(result):
     result['MET'].plot1d()

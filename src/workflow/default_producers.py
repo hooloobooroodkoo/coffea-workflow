@@ -9,6 +9,7 @@ from .producers import producer
 from .config import RunConfig
 import importlib
 import math
+from coffea.processor import accumulate
 
 def _load_object(path: str) -> Any:
     """
@@ -179,15 +180,16 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
             chunking=chunking,
             analysis_builder=art.builder,
         )
-        try:
-            # process chunk
-            #TODO it's a folder, I need .pkl
-            chunk_out_dir = deps.need(chunk_art)
-            acc = cloudpickle.loads((chunk_out_dir / "payload.pkl").read_bytes())
-            merged = acc if merged is None else (merged + acc)
-
-        except Exception as e:
-            failures.append({"chunk_file": chunk_file, "error": repr(e)})
+        # process chunk
+        #TODO it's a folder, I need .pkl
+        chunk_out_dir = deps.need(chunk_art)
+        result = cloudpickle.loads((chunk_out_dir / "payload.pkl").read_bytes())
+        if result.is_ok():
+            acc, metrics = result.unwrap()
+            merged = accumulate([acc], accum=merged)
+        else:
+            failures.append({"chunk_file": chunk_file, "error": str(result)})
+            continue
 
     payload = {
         "builder": art.builder,
