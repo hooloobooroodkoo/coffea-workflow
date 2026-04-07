@@ -11,10 +11,13 @@ import importlib
 import math
 from coffea.processor import accumulate
 
-def _load_object(path: str) -> Any:
+def _load_object(path: str | Any) -> Any:
     """
     Finds the function implemented by a user and returns it.
+    Accepts either a 'module:function' string or a callable directly.
     """
+    if callable(path):
+        return path
     if ":" in path:
         mod_name, attr = path.split(":", 1)
     else:

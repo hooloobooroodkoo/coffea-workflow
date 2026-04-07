@@ -1,8 +1,17 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 from .identity import hash_identity
 
+
+def _builder_key(builder: str | Callable) -> str:
+    """
+    Returns a stable string key for a builder (string or callable).
+    Functions are serialised as 'module:qualname' so identity is deterministic.
+    """
+    if callable(builder):
+        return f"{builder.__module__}:{builder.__qualname__}"
+    return builder
 
 ARTIFACT_REGISTRY = {}
 
@@ -42,12 +51,12 @@ class Fileset(ArtifactBase):
     External artifact that user uses and defines the builder(his/her cutom script that returns fileset.json)
     """
     name: str
-    builder: str # uses function that user provides
+    builder: str | Callable
 
     def keys(self) -> Mapping[str, Any]:
         return {
             "name": self.name,
-            "builder": self.builder,
+            "builder": _builder_key(self.builder),
         }
 
 @register_artifact
@@ -92,14 +101,14 @@ class ChunkAnalysis(ArtifactBase):
     """
     chunk_file: str
     chunking: Chunking
-    analysis_builder: str
+    analysis_builder: str | Callable
 
 
     def keys(self):
         return {
             "chunk_file": self.chunk_file,
             "chunking": self.chunking,
-            "analysis_builder": self.analysis_builder,
+            "analysis_builder": _builder_key(self.analysis_builder),
         }
 
 # most probably is not needed
@@ -131,13 +140,13 @@ class Analysis(ArtifactBase):
     """
     name: str
     fileset: Fileset
-    builder: str
+    builder: str | Callable
 
     def keys(self):
         return {
             "name": self.name,
             "fileset": self.fileset,
-            "builder": self.builder
+            "builder": _builder_key(self.builder),
         }
 
 @register_artifact
@@ -147,11 +156,11 @@ class Plotting(ArtifactBase):
 
     name: str
     analysis: "Analysis"
-    builder: str
+    builder: str | Callable
 
     def keys(self):
         return {
             "name": self.name,
             "analysis": self.analysis,
-            "builder": self.builder,
+            "builder": _builder_key(self.builder),
         }
