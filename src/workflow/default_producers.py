@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Any
 import cloudpickle
-from .artifacts import Fileset, Analysis, Chunking, ChunkAnalysis, Plotting
+from .artifacts import Fileset, Analysis, Chunking, ChunkAnalysis, Plotting, _builder_key
 from .deps import Deps
 from .producers import producer
 from .config import RunConfig
@@ -151,9 +151,11 @@ def run_analysis(*, art: ChunkAnalysis, deps: Deps, out: Path, config: RunConfig
     chunk_fileset = json.loads(chunk_path.read_text())
 
     fn = _load_object(art.analysis_builder)  # user's function
-    acc = fn(chunk_fileset)    
+    result = fn(chunk_fileset)
 
-    (out / "payload.pkl").write_bytes(cloudpickle.dumps(acc))
+    (out / "payload.pkl").write_bytes(cloudpickle.dumps(result))
+    if result.is_ok():
+        (out / ".success").touch()
 
 @producer(Analysis)
 def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig) -> None:
@@ -178,24 +180,27 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
     failures = []
 
     for chunk_file in chunks_files:
+        print("------------------------------------")
+        print(f"Processing {chunk_file}")
         chunk_art = ChunkAnalysis(
             chunk_file=chunk_file,
             chunking=chunking,
             analysis_builder=art.builder,
         )
         # process chunk
-        #TODO it's a folder, I need .pkl
         chunk_out_dir = deps.need(chunk_art)
         result = cloudpickle.loads((chunk_out_dir / "payload.pkl").read_bytes())
         if result.is_ok():
-            acc, metrics = result.unwrap()
+            print("Successfully processed!")
+            acc, _metrics = result.unwrap()
             merged = accumulate([acc], accum=merged)
         else:
+            print("Failure caught!")
             failures.append({"chunk_file": chunk_file, "error": str(result)})
             continue
 
     payload = {
-        "builder": art.builder,
+        "builder": _builder_key(art.builder),
         "n_chunks_total": len(chunks_files),
         "n_chunks_ok": 0 if merged is None else (len(chunks_files) - len(failures)),
         "failures": failures,
@@ -203,6 +208,10 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
     }
     out.mkdir(parents=True, exist_ok=True)
     (out / "payload.pkl").write_bytes(cloudpickle.dumps(payload))
+    if failures:
+        (out / ".has_failures").touch()
+    else:
+        (out / ".has_failures").unlink(missing_ok=True)
 
 @producer(Plotting)
 def make_plot(*, art: Plotting, deps: Deps, out: Path, config: RunConfig) -> None:
