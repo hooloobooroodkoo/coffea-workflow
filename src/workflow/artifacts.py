@@ -1,8 +1,17 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol,runtime_checkable
+from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 from .identity import hash_identity
 
+
+def _builder_key(builder: str | Callable) -> str:
+    """
+    Returns a stable string key for a builder (string or callable).
+    Functions are serialised as 'module:qualname' so identity is deterministic.
+    """
+    if callable(builder):
+        return f"{builder.__module__}:{builder.__qualname__}"
+    return builder
 
 ARTIFACT_REGISTRY = {}
 
@@ -20,6 +29,8 @@ class Artifact(Protocol):
 
 @dataclass(frozen=True)
 class ArtifactBase:
+    always_rerun = False
+
     def keys(self):
         raise NotImplementedError
 
@@ -40,12 +51,12 @@ class Fileset(ArtifactBase):
     External artifact that user uses and defines the builder(his/her cutom script that returns fileset.json)
     """
     name: str
-    builder: str # uses function that user provides
+    builder: str | Callable
 
     def keys(self) -> Mapping[str, Any]:
         return {
             "name": self.name,
-            "builder": self.builder,
+            "builder": _builder_key(self.builder),
         }
 
 @register_artifact
@@ -55,33 +66,24 @@ class Chunking(ArtifactBase):
     Internal artifact. User doesn't use this artifact, it's a helping artifact that is
     produced by Analysis artifact(external) to execute splitting strategy.
     Returns fileset chunks based on splitting strategy.
-    Its producer's output example (depends on splitting strategy):
-        - "by_dataset":
-            .cache/Chunking/<identity>/ 
-                manifest.json
-                fileset_datasetA.json
-                fileset_datasetB.json
-                
-        - "percentage_per_file":
-            .cache/Chunking/<identity>/
-                manifest.json
-                fileset_0_20_percent.json
-                fileset_20_40_percent.json
-                ...
-                
-        - None:
-            .cache/Chunking/<identity>/
-                filset.json
+    Its producer writes:
+        .cache/Chunking/<identity>/
+            manifest.json
+            fileset_chunk_0.json
+            fileset_chunk_1.json
+            ...
     """
     fileset: Fileset
-    split_strategy: str
-    percentage: int
+    split_strategy: str | None
+    percentage: int | None
+    datasets: tuple[str, ...] | None = None
 
     def keys(self):
         return {
             "fileset": self.fileset,
             "split_strategy": self.split_strategy,
             "percentage": self.percentage,
+            "datasets": self.datasets,
         }
 
 @register_artifact
@@ -99,14 +101,14 @@ class ChunkAnalysis(ArtifactBase):
     """
     chunk_file: str
     chunking: Chunking
-    analysis_builder: str
+    analysis_builder: str | Callable
 
 
     def keys(self):
         return {
             "chunk_file": self.chunk_file,
             "chunking": self.chunking,
-            "analysis_builder": self.analysis_builder,
+            "analysis_builder": _builder_key(self.analysis_builder),
         }
 
 # most probably is not needed
@@ -138,16 +140,27 @@ class Analysis(ArtifactBase):
     """
     name: str
     fileset: Fileset
-    builder: str
+    builder: str | Callable
 
     def keys(self):
         return {
             "name": self.name,
             "fileset": self.fileset,
-            "builder": self.builder
+            "builder": _builder_key(self.builder),
         }
 
 @register_artifact
 @dataclass(frozen=True)
 class Plotting(ArtifactBase):
-    pass
+    always_rerun = True
+
+    name: str
+    analysis: "Analysis"
+    builder: str | Callable
+
+    def keys(self):
+        return {
+            "name": self.name,
+            "analysis": self.analysis,
+            "builder": _builder_key(self.builder),
+        }

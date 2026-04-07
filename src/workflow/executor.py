@@ -15,6 +15,7 @@ class Executor:
     def __init__(self, cache_dir: Path, config: RunConfig):
         self.cache_dir = cache_dir
         self.config = config
+        self._session_cache: set[Path] = set()  # paths materialized this run
     
 
     def path_for(self, art: Artifact) -> Path:
@@ -44,25 +45,41 @@ class Executor:
         """
         return self.cache_dir / art.type_name / art.identity() 
 
-    def exists(self, art: Artifact) -> bool:
-        """
-        TODO
-        It only check and Artifact folder creation, but not the output files existence!!!
-        """
-        return self.path_for(art).exists()
+    _EXPECTED = {
+        "Fileset": "fileset.json",
+        "Chunking": "manifest.json",
+        "ChunkAnalysis": ".success",
+        "Analysis": "payload.pkl",
+        "Plotting": "payload.pkl",
+    }
 
+    def exists(self, art: Artifact) -> bool:
+        out = self.path_for(art)
+        if not out.is_dir():
+            return False
+        expected = self._EXPECTED.get(art.type_name)
+        if expected and not (out / expected).exists():
+            return False
+        # Analysis with recorded failures is not considered complete
+        if art.type_name == "Analysis" and (out / ".has_failures").exists():
+            return False
+        return True
 
     def materialize(self, art: Artifact) -> Path:
         out = self.path_for(art)
-        if out.exists():
+        if out in self._session_cache:
+            return out
+        if not getattr(art, "always_rerun", False) and self.exists(art):
+            self._session_cache.add(out)
             return out
 
         fn = get_producer(type(art))
-        deps = Deps(self)             
+        deps = Deps(self)
         fn(art=art, deps=deps, out=out, config=self.config)
 
         if not out.exists():
             raise RuntimeError(
                 f"Producer for {art.type_name} finished but did not create output at {out}"
             )
+        self._session_cache.add(out)
         return out 

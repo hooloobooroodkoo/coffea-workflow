@@ -26,6 +26,7 @@ def canonicalize(obj: Any) -> bytes:
     ).encode("utf-8")
 
 def hash_identity(*parts: Any) -> str:
+    """TODO change hashing approach"""
     h = hashlib.sha256()
     for p in parts:
         if isinstance(p, (bytes, bytearray)):
