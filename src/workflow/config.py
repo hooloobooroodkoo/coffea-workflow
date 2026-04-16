@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 SplitStrategy = Literal["by_dataset"] | None
 
@@ -17,6 +17,8 @@ class RunConfig:
     percentage: int | None = None
     datasets: tuple[str, ...] | None = None
     cache_dir: Path = Path(".cache")
+    hist_client: Any | None = None
+    histserv_connection_info: dict | None = None
 
     def __post_init__(self):
         if self.strategy not in (None, "by_dataset"):
@@ -33,6 +35,7 @@ class RunConfig:
                 raise ValueError(
                     "percentage must divide 100 evenly (e.g. 10, 20, 25, 50)."
                 )
+            
 
         # auto-convert list → tuple for hashability
         if isinstance(self.datasets, list):
