@@ -1,0 +1,10 @@
+{
+  "n_chunks": 5,
+  "output_files": {
+    "0": "fileset_chunk_0.json",
+    "1": "fileset_chunk_1.json",
+    "2": "fileset_chunk_2.json",
+    "3": "fileset_chunk_3.json",
+    "4": "fileset_chunk_4.json"
+  }
+}

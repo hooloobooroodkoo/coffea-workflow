@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import inspect
 from pathlib import Path
 from typing import Any
 import cloudpickle
@@ -11,6 +12,26 @@ import importlib
 import math
 from coffea.processor import accumulate
 
+def _call_builder(fn, *args, config: RunConfig | None = None) -> Any:
+    """
+    Call fn(*args), injecting config as a kwarg if the function accepts it.
+    For example, user uses client histserv in analysis function.
+    """
+    if config is not None and "config" in inspect.signature(fn).parameters:
+        return fn(*args, config=config)
+    return fn(*args)
+
+def _extract_acc(result) -> Any:
+    """
+    Depending on the processor implementation, the user can return the accumulator or something else.
+    Unwrap a Result, handling both savemetrics=True (tuple) and False (bare acc).
+    """
+    value = result.unwrap()
+    if isinstance(value, tuple):
+        acc, _metrics = value
+        return acc
+    return value
+    
 def _load_object(path: str | Any) -> Any:
     """
     Finds the function implemented by a user and returns it.
@@ -151,7 +172,7 @@ def run_analysis(*, art: ChunkAnalysis, deps: Deps, out: Path, config: RunConfig
     chunk_fileset = json.loads(chunk_path.read_text())
 
     fn = _load_object(art.analysis_builder)  # user's function
-    result = fn(chunk_fileset)
+    result = _call_builder(fn, chunk_fileset, config=config)
 
     (out / "payload.pkl").write_bytes(cloudpickle.dumps(result))
     if result.is_ok():
@@ -190,10 +211,17 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
         # process chunk
         chunk_out_dir = deps.need(chunk_art)
         result = cloudpickle.loads((chunk_out_dir / "payload.pkl").read_bytes())
+
+        #TODO: if config contains histserv_connection_info, then use the connection and add to the hist server, otherwise 
         if result.is_ok():
             print("Successfully processed!")
-            acc, _metrics = result.unwrap()
-            merged = accumulate([acc], accum=merged)
+            output = _extract_acc(result)
+            if config.hist_client is not None:
+                # acc is already connection_info (returned directly from run_analysis)
+                # passing remote_hist directly is not possible because it holds a live gRPC connection, which is not picklable
+                merged = config.histserv_connection_info # connection info to histserv
+            else:
+                merged = accumulate([output], accum=merged) # accumulatable
         else:
             print("Failure caught!")
             failures.append({"chunk_file": chunk_file, "error": str(result)})
@@ -219,5 +247,8 @@ def make_plot(*, art: Plotting, deps: Deps, out: Path, config: RunConfig) -> Non
     analysis_dir = deps.need(art.analysis)
     payload = cloudpickle.loads((analysis_dir / "payload.pkl").read_bytes())
     fn = _load_object(art.builder)
-    plot_result = fn(payload["merged"])
+    if config.histserv_connection_info is not None:
+        plot_result = _call_builder(fn, config=config)
+    else:
+        plot_result = _call_builder(fn, payload["merged"])
     (out / "payload.pkl").write_bytes(cloudpickle.dumps(plot_result))

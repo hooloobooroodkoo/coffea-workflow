@@ -1,9 +1,11 @@
 import numpy as np
 import hist
-from histserv import Client
+import histserv 
 import coffea.processor as processor
 import awkward as ak
+from coffea.processor import Ok
 from coffea.nanoevents import schemas
+import grpc
 
 def get_fileset():
     fileset = {'SingleMu_0':
@@ -28,69 +30,83 @@ def get_fileset():
           }
     return fileset
 
-# This program plots an event-level variable (in this case, MET, but switching it is as easy as a dict-key change). It also demonstrates an easy use of the book-keeping cutflow tool, to keep track of the number of events processed.
-
-# The processor class bundles our data analysis together while giving us some helpful tools.  It also leaves looping and chunks to the framework instead of us.
 class Processor(processor.ProcessorABC):
-    def __init__(self):
-        # Bins and categories for the histogram are defined here. For format, see https://coffeateam.github.io/coffea/stubs/coffea.hist.hist_tools.Hist.html && https://coffeateam.github.io/coffea/stubs/coffea.hist.hist_tools.Bin.html
-        dataset_axis = hist.axis.StrCategory(name="dataset", label="", categories=[], growth=True)
-        MET_axis = hist.axis.Regular(name="MET", label="MET [GeV]", bins=50, start=0, stop=100)
-        
-        # The accumulator keeps our data chunks together for cutflow, which can be used to keep track of data
+    # CHANGED
+    def __init__(self, remote_hist):
+    
+        self.remote_hist = remote_hist
         self.output = processor.dict_accumulator({
-            # 'MET': hist.Hist(dataset_axis, MET_axis),
             'cutflow': processor.defaultdict_accumulator(int)
         })
 
-        H = hist.Hist(dataset_axis, MET_axis)
-        # histserv takes care of preserving and accumulating the histogram remotely on server
-        self.remote_hist = client.init(H)
-
-
     
     def process(self, events):
-        # This is where we do our actual analysis. The dataset has columns similar to the TTree's; events.columns can tell you them, or events.[object].columns for deeper depth.
         dataset = events.metadata["dataset"]
         MET = events.MET.pt
         
-        # We can define a new key for cutflow (in this case 'all events'). Then we can put values into it. We need += because it's per-chunk (demonstrated below)
         self.output['cutflow']['all events'] += len(MET)
         self.output['cutflow']['number of chunks'] += 1
-        
-        # This fills our histogram once our data is collected. The hist key ('MET=') will be defined in the bin in __init__.
-        # self.output['MET'].fill(dataset=dataset, MET=MET)
-        # simple example fill
-        try:
-            self.remote_hist.fill(
-                    dataset=dataset,
-                    MET=MET,
-                )
-            except grpc.RpcError as exc:
-                raise RuntimeError(
-                    f"RPC failed with status {exc.code()}: {exc.details()}"
-                ) from exc
 
-        print("All remote fills succeeded!")
+        # CHANGED
+        try:
+            self.remote_hist.fill(dataset=dataset, MET=MET)
+        except grpc.RpcError as exc:
+            raise RuntimeError(
+                f"RPC failed with status {exc.code()}: {exc.details()}"
+            ) from exc
 
         return self.output
     
     def postprocess(self, accumulator):
         pass
 
-def run_analysis(fileset):
-    client_hist = Client(address="[::]:50051")
-    from dask.distributed import Client
+def hist_template():
+    dataset_axis = hist.axis.StrCategory(name="dataset", label="", categories=[], growth=True)
+    MET_axis = hist.axis.Regular(name="MET", label="MET [GeV]", bins=50, start=0, stop=100)
+    return hist.Hist(dataset_axis, MET_axis)
 
-    client = Client("tls://localhost:8786")
-    
-    executor_inst = processor.DaskExecutor(client=Client)
-    run = processor.Runner(executor=executor_inst, schema=schemas.NanoAODSchema, savemetrics=True,
-                        use_result_type=True)
-    result = run(fileset, Processor(client=client_hist))
+# Analysis function should accept config parameter to be able to read histserv configs
+def run_analysis(fileset, config):
+    # extract client and connection information
+    hist_client = config.hist_client
+    conn = config.histserv_connection_info
+    print(f"conn: {conn}")
 
+    # reconnect to the histogram 
+    remote_hist = hist_client.connect(hist_id=conn["hist_id"], token=conn["token"])
+    print(f"Reconnected to histserv: {remote_hist.get_connection_info()}")
+
+    # run the processor
+    executor_inst = processor.FuturesExecutor()
+    run = processor.Runner(executor=executor_inst, schema=schemas.NanoAODSchema,
+                           savemetrics=True, use_result_type=True)
+    proc = Processor(remote_hist=remote_hist)
+    result = run(fileset, proc)
+
+    # return the histserv connection information to preserve the analysis result
+    if result.is_ok():
+        return Ok(remote_hist.get_connection_info())
+
+    # return Err()
     return result
 
-def plot_results(result):
-    # result['MET'].plot1d()
-    result.remote_hist.snapshot()
+# accept config with histserv information
+def plot_results(config):
+    import matplotlib.pyplot as plt
+    
+    # reconnect to the histserv and retrieve information about the hist
+    connection_info = config.histserv_connection_info
+    hist_client = config.hist_client
+    remote_hist = hist_client.connect(hist_id=connection_info["hist_id"], token=connection_info["token"])
+    
+    hist_result = remote_hist.snapshot().to_hist()
+    
+    # visualise the snapshot
+    fig, ax = plt.subplots()
+    for dataset in hist_result.axes[0]:
+        hist_result[{"dataset": dataset}].plot1d(ax=ax, label=dataset)
+    ax.set_xlabel("MET [GeV]")
+    ax.set_ylabel("Events")
+    ax.legend()
+    plt.show()
+
