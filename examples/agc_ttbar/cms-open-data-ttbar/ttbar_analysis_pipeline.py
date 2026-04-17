@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.16.2
+#       jupytext_version: 1.19.0
 #   kernelspec:
 #     display_name: Python 3 (ipykernel)
 #     language: python
@@ -90,7 +90,7 @@ logging.getLogger("cabinetry").setLevel(logging.INFO)
 N_FILES_MAX_PER_SAMPLE = 5
 
 # enable Dask
-USE_DASK = True
+USE_DASK = False
 
 # enable ServiceX, specify options
 USE_SERVICEX = False
@@ -573,9 +573,10 @@ t0 = time.monotonic()
 # processing
 all_histograms, metrics = run(
     fileset,
-    treename,
-    processor_instance=TtbarAnalysis(USE_INFERENCE, USE_TRITON)
+    processor_instance=TtbarAnalysis(USE_INFERENCE, USE_TRITON),
+    treename=treename
 )
+
 exec_time = time.monotonic() - t0
 
 print(f"\nexecution took {exec_time:.2f} seconds")
@@ -785,3 +786,7 @@ if utils.config["preservation"]["HEPData"] is True:
 # Please do not hesitate to get in touch if you would like to join the effort, or are interested in re-implementing (pieces of) the pipeline with different tools!
 #
 # Our mailing list is analysis-grand-challenge@iris-hep.org, sign up via the [Google group](https://groups.google.com/a/iris-hep.org/g/analysis-grand-challenge).
+
+# %%
+
+# %%
