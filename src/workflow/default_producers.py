@@ -198,6 +198,7 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
     chunks_files = list(manifest["output_files"].values())
 
     merged = None
+    histserv_info =  None
     failures = []
 
     for chunk_file in chunks_files:
@@ -219,7 +220,7 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
             if config.hist_client is not None:
                 # acc is already connection_info (returned directly from run_analysis)
                 # passing remote_hist directly is not possible because it holds a live gRPC connection, which is not picklable
-                merged = config.histserv_connection_info # connection info to histserv
+                histserv_info = config.histserv_connection_info # connection info to histserv
             else:
                 merged = accumulate([output], accum=merged) # accumulatable
         else:
@@ -233,6 +234,7 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
         "n_chunks_ok": 0 if merged is None else (len(chunks_files) - len(failures)),
         "failures": failures,
         "merged": merged,
+        "histserv_info": histserv_info,
     }
     out.mkdir(parents=True, exist_ok=True)
     (out / "payload.pkl").write_bytes(cloudpickle.dumps(payload))
