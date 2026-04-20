@@ -3,7 +3,7 @@ def get_client(af="coffea_casa"):
         from dask.distributed import Client
 
         client = Client("tls://localhost:8786")
-
+        
     elif af == "coffea_dev":
         from dask.distributed import Client
 
@@ -11,7 +11,7 @@ def get_client(af="coffea_casa"):
         from dask.distributed import PipInstall
         plugin = PipInstall(packages=["coffea@git+https://github.com/hooloobooroodkoo/coffea.git@processor_result_type"])
         client.register_plugin(plugin)
-
+        
     elif af == "EAF":
         from htcdaskgateway import HTCGateway
 

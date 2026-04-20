@@ -547,7 +547,8 @@ if USE_SERVICEX:
 NanoAODSchema.warn_missing_crossrefs = False # silences warnings about branches we will not use here
 if USE_DASK:
     cloudpickle.register_pickle_by_value(utils) # serialize methods and objects in utils so that they can be accessed within the coffea processor
-    executor = processor.DaskExecutor(client=utils.clients.get_client(af=utils.config["global"]["AF"]))
+    # CHANGED (to use dev coffea from my branch)
+    executor = processor.DaskExecutor(client=utils.clients.get_client(af="coffea_dev"))
 else:
     executor = processor.FuturesExecutor(workers=utils.config["benchmarking"]["NUM_CORES"])
 
@@ -556,7 +557,9 @@ run = processor.Runner(
     schema=NanoAODSchema,
     savemetrics=True,
     metadata_cache={},
-    chunksize=utils.config["benchmarking"]["CHUNKSIZE"])
+    chunksize=utils.config["benchmarking"]["CHUNKSIZE"],
+    use_result_type=True# CHANGED
+    )
 
 if USE_SERVICEX:
     treename = "servicex"
@@ -571,15 +574,19 @@ filemeta = run.preprocess(fileset, treename=treename)  # pre-processing
 
 t0 = time.monotonic()
 # processing
-all_histograms, metrics = run(
+# CHANGED
+result = run(
     fileset,
     processor_instance=TtbarAnalysis(USE_INFERENCE, USE_TRITON),
-    treename=treename
+    treename=treename,
 )
 
 exec_time = time.monotonic() - t0
 
 print(f"\nexecution took {exec_time:.2f} seconds")
+
+# %%
+result
 
 # %%
 # track metrics

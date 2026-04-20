@@ -21,3 +21,4 @@ pip-wheel-metadata/
 
 # Logs
 *.log
+snalemake_workflow/
