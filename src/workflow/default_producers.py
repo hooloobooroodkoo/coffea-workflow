@@ -197,7 +197,8 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
     manifest = json.loads(manifest_path.read_text())
     chunks_files = list(manifest["output_files"].values())
 
-    merged = None
+    merged_acc = None
+    metrics_merged = None
     failures = []
 
     for chunk_file in chunks_files:
@@ -231,7 +232,7 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
     payload = {
         "builder": _builder_key(art.builder),
         "n_chunks_total": len(chunks_files),
-        "n_chunks_ok": 0 if merged is None else (len(chunks_files) - len(failures)),
+        "n_chunks_ok": 0 if merged_acc is None else (len(chunks_files) - len(failures)),
         "failures": failures,
         "merged": merged_acc,
         "metrics": metrics_merged,
