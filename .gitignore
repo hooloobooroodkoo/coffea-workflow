@@ -23,3 +23,5 @@ pip-wheel-metadata/
 *.log
 snalemake_workflow/
 cms-open-data-ttbar
+cache
+cache_hist
