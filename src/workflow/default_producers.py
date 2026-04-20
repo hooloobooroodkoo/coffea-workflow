@@ -258,6 +258,7 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
     }
     out.mkdir(parents=True, exist_ok=True)
     (out / "payload.pkl").write_bytes(cloudpickle.dumps(payload))
+    (out / ".chunk_fraction").write_text(str(config.chunk_fraction))
     if failures:
         (out / ".has_failures").touch()
     else:

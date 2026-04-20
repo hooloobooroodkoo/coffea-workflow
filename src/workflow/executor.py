@@ -60,9 +60,16 @@ class Executor:
         expected = self._EXPECTED.get(art.type_name)
         if expected and not (out / expected).exists():
             return False
-        # Analysis with recorded failures is not considered complete
-        if art.type_name == "Analysis" and (out / ".has_failures").exists():
-            return False
+        
+        if art.type_name == "Analysis":
+            # Analysis with recorded failures is not considered complete
+            if (out / ".has_failures").exists():
+                return False
+            # if chunk_fraction has changed since this result was cached
+            stamp = out / ".chunk_fraction"
+            stored = stamp.read_text() if stamp.exists() else "None"
+            if stored != str(self.config.chunk_fraction):
+                return False
         return True
 
     def materialize(self, art: Artifact) -> Path:
