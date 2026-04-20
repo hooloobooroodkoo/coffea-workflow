@@ -123,14 +123,23 @@ def _split_fileset(fileset, strategy=None, datasets=None, percentage=None):
                 files = data.get("files", {})
                 if not files:
                     continue
-                file_items = list(files.items())
+                
+                if isinstance(files, dict):
+                    file_items = list(files.items())
+                    as_dict = True
+                else:
+                    file_items = list(files)
+                    as_dict = False
+
                 n = len(file_items)
                 chunk_size = max(1, math.ceil(n / n_chunks))
                 start = bin_idx * chunk_size
                 end = min(start + chunk_size, n)
                 if start >= n:
-                    continue
-                chunk[dataset] = {**data, "files": dict(file_items[start:end])}
+                    continue    
+                sliced = file_items[start:end]
+                chunk[dataset] = {**data, "files": dict(sliced) if as_dict else list(sliced)}
+                
             if chunk:
                 result.append(chunk)
     return result
@@ -245,8 +254,7 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
         "n_chunks_total": len(chunks_files),
         "n_chunks_ok": 0 if merged_acc is None else (len(chunks_files) - len(failures)),
         "failures": failures,
-        "merged": merged_acc,
-        "metrics": metrics_merged,
+        "processor_result": (merged_acc, metrics_merged),
     }
     out.mkdir(parents=True, exist_ok=True)
     (out / "payload.pkl").write_bytes(cloudpickle.dumps(payload))
@@ -264,5 +272,5 @@ def make_plot(*, art: Plotting, deps: Deps, out: Path, config: RunConfig) -> Non
     if config.histserv_connection_info is not None:
         plot_result = _call_builder(fn, config=config)
     else:
-        plot_result = _call_builder(fn, payload["merged"])
+        plot_result = _call_builder(fn, payload)
     (out / "payload.pkl").write_bytes(cloudpickle.dumps(plot_result))

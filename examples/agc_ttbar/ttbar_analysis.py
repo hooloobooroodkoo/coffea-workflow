@@ -19,6 +19,9 @@ import numpy as np
 import pyhf
 
 import utils  # contains code for bookkeeping and cosmetics, as well as some boilerplate
+import utils.config
+import utils.metrics
+import utils.plotting
 
 logging.getLogger("cabinetry").setLevel(logging.INFO)
 
@@ -56,6 +59,7 @@ def get_fileset():
     print(f"processes in fileset: {list(fileset.keys())}")
     print(f"\nexample of information in fileset:\n{{\n  'files': [{fileset['ttbar__nominal']['files'][0]}, ...],")
     print(f"  'metadata': {fileset['ttbar__nominal']['metadata']}\n}}")
+    print(fileset)
     return fileset
 
 
@@ -308,7 +312,7 @@ class TtbarAnalysis(processor.ProcessorABC):
     def postprocess(self, accumulator):
         return accumulator
 
-def run_analysis():
+def run_analysis(fileset): # <- CHANGED, do not forget to pass fileset
     NanoAODSchema.warn_missing_crossrefs = False # silences warnings about branches we will not use here
     if USE_DASK:
         cloudpickle.register_pickle_by_value(utils) # serialize methods and objects in utils so that they can be accessed within the coffea processor
@@ -323,7 +327,7 @@ def run_analysis():
                             savemetrics=True,
                             metadata_cache={},
                             chunksize=utils.config["benchmarking"]["CHUNKSIZE"],
-                            use_result_type=True# CHANGED
+                            use_result_type=True # CHANGED
                         )
     
     if USE_SERVICEX:
@@ -350,5 +354,21 @@ def run_analysis():
     
     print(f"\nexecution took {exec_time:.2f} seconds")
     
-    # CHANGED
+    # # CHANGED
+    # all_histograms, metrics = result.unwrap()
+    
+    # utils.metrics.track_metrics(metrics, fileset, exec_time, USE_DASK, USE_SERVICEX, N_FILES_MAX_PER_SAMPLE, USE_INFERENCE, USE_TRITON)
+
     return result
+
+def plotting_1(result): # <- CHANGED, do not forget to pass result
+
+    print(result.keys())
+    all_histograms, metrics = result["processor_result"]  # CHANGED
+    
+    utils.plotting.set_style()
+    
+    all_histograms["hist_dict"]["4j1b"][120j::hist.rebin(2), :, "nominal"].stack("process")[::-1].plot(stack=True, histtype="fill", linewidth=1, edgecolor="grey")
+    plt.legend(frameon=False)
+    plt.title(r"$\geq$ 4 jets, 1 b-tag")
+    plt.xlabel("$H_T$ [GeV]");

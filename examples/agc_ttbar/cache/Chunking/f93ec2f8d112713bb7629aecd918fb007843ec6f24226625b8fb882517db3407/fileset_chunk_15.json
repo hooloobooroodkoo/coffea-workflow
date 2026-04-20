@@ -1,0 +1,13 @@
+{
+  "ttbar__ME_var": {
+    "files": [
+      "https://xrootd-local.unl.edu:1094//store/user/AGC/nanoAOD/TT_TuneCUETP8M1_13TeV-amcatnlo-pythia8/cmsopendata2015_ttbar_19978_PU25nsData2015v1_76X_mcRun2_asymptotic_v12_ext1-v1_60000_0002.root"
+    ],
+    "metadata": {
+      "nevts": 5482617,
+      "process": "ttbar",
+      "variation": "ME_var",
+      "xsec": 729.84
+    }
+  }
+}

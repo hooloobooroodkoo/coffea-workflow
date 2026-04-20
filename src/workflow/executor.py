@@ -71,6 +71,7 @@ class Executor:
             return out
         if not getattr(art, "always_rerun", False) and self.exists(art):
             self._session_cache.add(out)
+            print(f"Extracted from cache: {out}")
             return out
 
         fn = get_producer(type(art))

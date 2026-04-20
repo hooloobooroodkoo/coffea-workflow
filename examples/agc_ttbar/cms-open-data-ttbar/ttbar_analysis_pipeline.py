@@ -589,6 +589,14 @@ print(f"\nexecution took {exec_time:.2f} seconds")
 result
 
 # %%
+unwrapped = result.unwrap()
+unwrapped
+
+# %%
+all_histograms, metrics = unwrapped
+metrics
+
+# %%
 # track metrics
 utils.metrics.track_metrics(metrics, fileset, exec_time, USE_DASK, USE_SERVICEX, N_FILES_MAX_PER_SAMPLE, USE_INFERENCE, USE_TRITON)
 

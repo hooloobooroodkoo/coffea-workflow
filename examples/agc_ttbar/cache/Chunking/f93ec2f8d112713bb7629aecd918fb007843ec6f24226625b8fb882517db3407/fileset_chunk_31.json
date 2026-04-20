@@ -1,0 +1,13 @@
+{
+  "ttbar__scaledown": {
+    "files": [
+      "https://xrootd-local.unl.edu:1094//store/user/AGC/nanoAOD/TT_TuneCUETP8M1_13TeV-powheg-scaledown-pythia8/cmsopendata2015_ttbar_19983_PU25nsData2015v1_76X_mcRun2_asymptotic_v12_ext3-v1_00000_0003.root"
+    ],
+    "metadata": {
+      "nevts": 6527925,
+      "process": "ttbar",
+      "variation": "scaledown",
+      "xsec": 729.84
+    }
+  }
+}

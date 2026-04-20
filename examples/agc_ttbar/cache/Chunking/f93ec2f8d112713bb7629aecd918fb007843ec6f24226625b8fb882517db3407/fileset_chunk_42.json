@@ -1,0 +1,13 @@
+{
+  "wjets__nominal": {
+    "files": [
+      "https://xrootd-local.unl.edu:1094//store/user/AGC/nanoAOD/WJetsToLNu_TuneCUETP8M1_13TeV-amcatnloFXFX-pythia8/cmsopendata2015_wjets_20547_PU25nsData2015v1_76X_mcRun2_asymptotic_v12_ext2-v1_10000_0004.root"
+    ],
+    "metadata": {
+      "nevts": 5913030,
+      "process": "wjets",
+      "variation": "nominal",
+      "xsec": 15487.164
+    }
+  }
+}
