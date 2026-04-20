@@ -16,6 +16,7 @@ class RunConfig:
     strategy: SplitStrategy = None
     percentage: int | None = None
     datasets: tuple[str, ...] | None = None
+    chunk_fraction: float | None = None
     cache_dir: Path = Path(".cache")
     hist_client: Any | None = None
     histserv_connection_info: dict | None = None
@@ -40,3 +41,7 @@ class RunConfig:
         # auto-convert list → tuple for hashability
         if isinstance(self.datasets, list):
             object.__setattr__(self, "datasets", tuple(self.datasets))
+
+        if self.chunk_fraction is not None:
+            if not isinstance(self.chunk_fraction, float) or not (0.0 < self.chunk_fraction <= 1.0):
+                raise ValueError("chunk_fraction must be a float in (0.0, 1.0]")

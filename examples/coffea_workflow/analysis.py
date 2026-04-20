@@ -8,7 +8,7 @@ def get_fileset():
     fileset = {'SingleMu_0':
            {"files":  {
                # broken link
-                "root://eeeeeeeeeeospublic.cern.ch//eos/opendata/cms/mc/RunIISummer20UL16NanoAODv9/GluGluHToWWTo2L2Nu_M125_TuneCP5_13TeV_powheg2_JHUGenV714_pythia8/NANOAODSIM/106X_mcRun2_asymptotic_v17-v2/260000/A41320F6-C9F9-574C-8DD2-BD98C200E4EE.root": "Events",
+                "root://eeeospublic.cern.ch//eos/opendata/cms/mc/RunIISummer20UL16NanoAODv9/GluGluHToWWTo2L2Nu_M125_TuneCP5_13TeV_powheg2_JHUGenV714_pythia8/NANOAODSIM/106X_mcRun2_asymptotic_v17-v2/260000/A41320F6-C9F9-574C-8DD2-BD98C200E4EE.root": "Events",
                 "root://eospublic.cern.ch//eos/opendata/cms/mc/RunIISummer20UL16NanoAODv9/GluGluHToWWTo2L2Nu_M125_TuneCP5_13TeV_powheg2_JHUGenV714_pythia8/NANOAODSIM/106X_mcRun2_asymptotic_v17-v2/260000/A7FEFB1C-387F-2B4D-A111-C53CC9371EC7.root": "Events",
                 "root://eospublic.cern.ch//eos/opendata/cms/mc/RunIISummer20UL16NanoAODv9/GluGluHToWWTo2L2Nu_M125_TuneCP5_13TeV_powheg2_JHUGenV714_pythia8/NANOAODSIM/106X_mcRun2_asymptotic_v17-v2/260000/AB10FBAB-92C0-C043-933D-117FCC5704BA.root": "Events",
                 "root://eospublic.cern.ch//eos/opendata/cms/mc/RunIISummer20UL16NanoAODv9/GluGluHToWWTo2L2Nu_M125_TuneCP5_13TeV_powheg2_JHUGenV714_pythia8/NANOAODSIM/106X_mcRun2_asymptotic_v17-v2/260000/C6E8BB7F-7F54-0C4C-9EDF-479C7DBB12E4.root": "Events",
@@ -27,12 +27,10 @@ def get_fileset():
           }
     return fileset
 
-# This program plots an event-level variable (in this case, MET, but switching it is as easy as a dict-key change). It also demonstrates an easy use of the book-keeping cutflow tool, to keep track of the number of events processed.
 
-# The processor class bundles our data analysis together while giving us some helpful tools.  It also leaves looping and chunks to the framework instead of us.
 class Processor(processor.ProcessorABC):
     def __init__(self):
-        # Bins and categories for the histogram are defined here. For format, see https://coffeateam.github.io/coffea/stubs/coffea.hist.hist_tools.Hist.html && https://coffeateam.github.io/coffea/stubs/coffea.hist.hist_tools.Bin.html
+
         dataset_axis = hist.axis.StrCategory(name="dataset", label="", categories=[], growth=True)
         MET_axis = hist.axis.Regular(name="MET", label="MET [GeV]", bins=50, start=0, stop=100)
         
@@ -43,15 +41,13 @@ class Processor(processor.ProcessorABC):
         })
     
     def process(self, events):
-        # This is where we do our actual analysis. The dataset has columns similar to the TTree's; events.columns can tell you them, or events.[object].columns for deeper depth.
+        
         dataset = events.metadata["dataset"]
         MET = events.MET.pt
         
-        # We can define a new key for cutflow (in this case 'all events'). Then we can put values into it. We need += because it's per-chunk (demonstrated below)
         self.output['cutflow']['all events'] += len(MET)
         self.output['cutflow']['number of chunks'] += 1
         
-        # This fills our histogram once our data is collected. The hist key ('MET=') will be defined in the bin in __init__.
         self.output['MET'].fill(dataset=dataset, MET=MET)
         return self.output
     
@@ -60,10 +56,12 @@ class Processor(processor.ProcessorABC):
 
 def run_analysis(fileset):
     executor_inst = processor.FuturesExecutor()
-    run = processor.Runner(executor=executor_inst, schema=schemas.NanoAODSchema, savemetrics=True,
+    run = processor.Runner(executor=executor_inst, schema=schemas.NanoAODSchema, savemetrics=False,
                         use_result_type=True)
     result = run(fileset, Processor())
     return result
 
 def plot_results(result):
-    result['MET'].plot1d()
+    print(f"Result:\n{result}")
+    hist_acc, metrics = result["processor_result"]
+    hist_acc['MET'].plot1d()
