@@ -59,7 +59,6 @@ def get_fileset():
     print(f"processes in fileset: {list(fileset.keys())}")
     print(f"\nexample of information in fileset:\n{{\n  'files': [{fileset['ttbar__nominal']['files'][0]}, ...],")
     print(f"  'metadata': {fileset['ttbar__nominal']['metadata']}\n}}")
-    print(fileset)
     return fileset
 
 
@@ -327,7 +326,7 @@ def run_analysis(fileset): # <- CHANGED, do not forget to pass fileset
                             savemetrics=True,
                             metadata_cache={},
                             chunksize=utils.config["benchmarking"]["CHUNKSIZE"],
-                            use_result_type=True # CHANGED
+                            use_result_type=True, # CHANGED
                         )
     
     if USE_SERVICEX:
@@ -343,7 +342,6 @@ def run_analysis(fileset): # <- CHANGED, do not forget to pass fileset
     
     t0 = time.monotonic()
     # processing
-    # CHANGED (as run returns Result type Ok or Err)
     result = run(
         fileset,
         processor_instance=TtbarAnalysis(USE_INFERENCE, USE_TRITON),
@@ -353,9 +351,6 @@ def run_analysis(fileset): # <- CHANGED, do not forget to pass fileset
     exec_time = time.monotonic() - t0
     
     print(f"\nexecution took {exec_time:.2f} seconds")
-    
-    # # CHANGED
-    # all_histograms, metrics = result.unwrap()
     
     # utils.metrics.track_metrics(metrics, fileset, exec_time, USE_DASK, USE_SERVICEX, N_FILES_MAX_PER_SAMPLE, USE_INFERENCE, USE_TRITON)
 
