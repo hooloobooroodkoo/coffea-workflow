@@ -13,6 +13,14 @@ def _builder_key(builder: str | Callable) -> str:
         return f"{builder.__module__}:{builder.__qualname__}"
     return builder
 
+def _to_params_tuple(params) -> tuple:
+    """Convert dict params to a sorted tuple of items for frozen-dataclass storage."""
+    if not params:
+        return ()
+    if isinstance(params, dict):
+        return tuple(sorted(params.items()))
+    return tuple(params)
+
 ARTIFACT_REGISTRY = {}
 
 def register_artifact(cls):
@@ -52,11 +60,16 @@ class Fileset(ArtifactBase):
     """
     name: str
     builder: str | Callable
-
+    params: tuple = ()
+     
+    def __post_init__(self):
+        object.__setattr__(self, 'params', _to_params_tuple(self.params))
+ 
     def keys(self) -> Mapping[str, Any]:
         return {
             "name": self.name,
             "builder": _builder_key(self.builder),
+            "params": dict(self.params),
         }
 
 @register_artifact
@@ -102,6 +115,11 @@ class ChunkAnalysis(ArtifactBase):
     chunk_file: str
     chunking: Chunking
     analysis_builder: str | Callable
+    params: tuple = ()
+     
+    def __post_init__(self):
+        object.__setattr__(self, 'params', _to_params_tuple(self.params))
+
 
 
     def keys(self):
@@ -109,6 +127,7 @@ class ChunkAnalysis(ArtifactBase):
             "chunk_file": self.chunk_file,
             "chunking": self.chunking,
             "analysis_builder": _builder_key(self.analysis_builder),
+            "params": dict(self.params),
         }
 
 # most probably is not needed
@@ -141,12 +160,18 @@ class Analysis(ArtifactBase):
     name: str
     fileset: Fileset
     builder: str | Callable
+    params: tuple = ()
+     
+    def __post_init__(self):
+        object.__setattr__(self, 'params', _to_params_tuple(self.params))
+ 
 
     def keys(self):
         return {
             "name": self.name,
             "fileset": self.fileset,
             "builder": _builder_key(self.builder),
+            "params": dict(self.params),
         }
 
 @register_artifact
@@ -157,10 +182,15 @@ class Plotting(ArtifactBase):
     name: str
     analysis: "Analysis"
     builder: str | Callable
+    params: tuple = ()
+     
+    def __post_init__(self):
+        object.__setattr__(self, 'params', _to_params_tuple(self.params))
 
     def keys(self):
         return {
             "name": self.name,
             "analysis": self.analysis,
             "builder": _builder_key(self.builder),
+            "params": dict(self.params),
         }

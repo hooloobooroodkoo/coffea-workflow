@@ -12,14 +12,18 @@ import importlib
 import math
 from coffea.processor import accumulate
 
-def _call_builder(fn, *args, config: RunConfig | None = None) -> Any:
+def _call_builder(fn, *args, config: RunConfig | None = None, params: dict | None = None) -> Any:
     """
     Call fn(*args), injecting config as a kwarg if the function accepts it.
     For example, user uses client histserv in analysis function.
     """
-    if config is not None and "config" in inspect.signature(fn).parameters:
-        return fn(*args, config=config)
-    return fn(*args)
+    kwargs = {}
+    sig = inspect.signature(fn).parameters
+    if config is not None and "config" in sig:
+        kwargs["config"] = config
+    if params and "params" in sig:
+        kwargs["params"] = params
+    return fn(*args, **kwargs)
 
 def _extract_acc(result) -> Any:
     """
@@ -53,7 +57,7 @@ def _load_object(path: str | Any) -> Any:
 def make_fileset(*, art: Fileset, deps: Deps, out: Path, config: RunConfig) -> None:
     # finds and calls the function that user specified in builder
     fn = _load_object(art.builder)
-    fileset_dict = fn()
+    fileset_dict = _call_builder(fn, params=dict(art.params))
 
     if not isinstance(fileset_dict, dict):
         raise TypeError("Fileset builder must return a dict")
@@ -181,7 +185,7 @@ def run_analysis(*, art: ChunkAnalysis, deps: Deps, out: Path, config: RunConfig
     chunk_fileset = json.loads(chunk_path.read_text())
 
     fn = _load_object(art.analysis_builder)  # user's function
-    result = _call_builder(fn, chunk_fileset, config=config)
+    result = _call_builder(fn, chunk_fileset, config=config, params=dict(art.params))
 
     (out / "payload.pkl").write_bytes(cloudpickle.dumps(result))
     if result.is_ok():
@@ -228,6 +232,7 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
             chunk_file=chunk_file,
             chunking=chunking,
             analysis_builder=art.builder,
+            params=art.params,
         )
         # process chunk
         chunk_out_dir = deps.need(chunk_art)
@@ -271,7 +276,7 @@ def make_plot(*, art: Plotting, deps: Deps, out: Path, config: RunConfig) -> Non
     payload = cloudpickle.loads((analysis_dir / "payload.pkl").read_bytes())
     fn = _load_object(art.builder)
     if config.histserv_connection_info is not None:
-        plot_result = _call_builder(fn, config=config)
+        plot_result = _call_builder(fn, config=config, params=dict(art.params))
     else:
-        plot_result = _call_builder(fn, payload)
+        plot_result = _call_builder(fn, payload, params=dict(art.params))
     (out / "payload.pkl").write_bytes(cloudpickle.dumps(plot_result))
