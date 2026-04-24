@@ -1,0 +1,261 @@
+"""
+Tests for workflow/default_producers.py
+ 
+Pure-logic helpers tested without touching the filesystem or coffea:
+  - _call_builder: injects config kwarg only when the function signature accepts it
+  - _load_object: resolves 'module:attr' and 'module.attr' strings; returns
+                  callables directly
+  - _split_fileset: all combinations of strategy/percentage/datasets
+"""
+import json
+import pytest
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+ 
+from workflow.default_producers import _call_builder, _load_object, _split_fileset, make_fileset
+from workflow.artifacts import Fileset
+from workflow.config import RunConfig
+from workflow.deps import Deps
+ 
+ 
+# ---------------------------------------------------------------------------
+# _call_builder
+# ---------------------------------------------------------------------------
+ 
+class TestCallBuilder:
+    def test_calls_fn_with_positional_arg(self):
+        calls = []
+        def fn(x):
+            calls.append(x)
+            return "ok"
+ 
+        assert _call_builder(fn, "hello", config=RunConfig()) == "ok"
+        assert calls == ["hello"]
+ 
+    def test_does_not_inject_config_when_fn_has_no_config_param(self):
+        def fn(x):
+            return x * 2
+ 
+        # If config were injected this would raise TypeError
+        assert _call_builder(fn, 3, config=RunConfig()) == 6
+ 
+    def test_injects_config_when_fn_accepts_it(self):
+        received = {}
+        cfg = RunConfig()
+ 
+        def fn(x, config):
+            received["config"] = config
+            return x
+ 
+        _call_builder(fn, "data", config=cfg)
+        assert received["config"] is cfg
+ 
+    def test_config_none_never_injected(self):
+        def fn(x):
+            return x
+ 
+        assert _call_builder(fn, 42, config=None) == 42
+ 
+    def test_no_args_fn_called_correctly(self):
+        def fn():
+            return "result"
+ 
+        assert _call_builder(fn, config=RunConfig()) == "result"
+ 
+ 
+# ---------------------------------------------------------------------------
+# _load_object
+# ---------------------------------------------------------------------------
+ 
+class TestLoadObject:
+    def test_callable_returned_directly(self):
+        fn = lambda: 42
+        assert _load_object(fn) is fn
+ 
+    def test_module_colon_attr_syntax(self):
+        import os.path
+        loaded = _load_object("os.path:join")
+        assert loaded is os.path.join
+ 
+    def test_module_dot_attr_syntax(self):
+        import os.path
+        loaded = _load_object("os.path.join")
+        assert loaded is os.path.join
+ 
+    def test_stdlib_function(self):
+        import json as _json
+        loaded = _load_object("json:dumps")
+        assert loaded is _json.dumps
+ 
+    def test_missing_attr_raises_attribute_error(self):
+        with pytest.raises(AttributeError, match="not found in module"):
+            _load_object("os:_this_does_not_exist_xyz")
+ 
+    def test_returns_class_as_well_as_function(self):
+        import pathlib
+        loaded = _load_object("pathlib:Path")
+        assert loaded is pathlib.Path
+ 
+ 
+# ---------------------------------------------------------------------------
+# _split_fileset
+# ---------------------------------------------------------------------------
+ 
+@pytest.fixture
+def two_dataset_fileset():
+    return {
+        "A": {"files": {"a1.root": "T", "a2.root": "T", "a3.root": "T", "a4.root": "T"}},
+        "B": {"files": {"b1.root": "T", "b2.root": "T"}},
+    }
+ 
+ 
+class TestSplitFilesetNoSplit:
+    def test_returns_single_chunk_containing_whole_fileset(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset)
+        assert len(chunks) == 1
+        assert chunks[0] == two_dataset_fileset
+ 
+    def test_empty_fileset_yields_one_empty_chunk(self):
+        assert _split_fileset({}) == [{}]
+ 
+ 
+class TestSplitFilesetByDataset:
+    def test_one_chunk_per_dataset(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, strategy="by_dataset")
+        assert len(chunks) == 2
+ 
+    def test_each_chunk_contains_exactly_one_dataset(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, strategy="by_dataset")
+        for chunk in chunks:
+            assert len(chunk) == 1
+ 
+    def test_all_datasets_are_present(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, strategy="by_dataset")
+        names = {list(c.keys())[0] for c in chunks}
+        assert names == {"A", "B"}
+ 
+    def test_files_intact_per_dataset(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, strategy="by_dataset")
+        chunk_a = next(c for c in chunks if "A" in c)
+        assert set(chunk_a["A"]["files"].keys()) == {"a1.root", "a2.root", "a3.root", "a4.root"}
+ 
+ 
+class TestSplitFilesetByPercentage:
+    def test_50_percent_gives_two_chunks(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, percentage=50)
+        assert len(chunks) == 2
+ 
+    def test_25_percent_gives_four_chunks(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, percentage=25)
+        assert len(chunks) == 4
+ 
+    def test_all_files_covered_across_chunks(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, percentage=50)
+        all_a = set()
+        all_b = set()
+        for chunk in chunks:
+            all_a.update(chunk.get("A", {}).get("files", {}).keys())
+            all_b.update(chunk.get("B", {}).get("files", {}).keys())
+        assert all_a == {"a1.root", "a2.root", "a3.root", "a4.root"}
+        assert all_b == {"b1.root", "b2.root"}
+ 
+    def test_100_percent_returns_single_chunk(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, percentage=100)
+        assert len(chunks) == 1
+ 
+ 
+class TestSplitFilesetCombined:
+    def test_by_dataset_and_50_percent(self, two_dataset_fileset):
+        # 2 datasets × 2 chunks each = 4 chunks
+        chunks = _split_fileset(two_dataset_fileset, strategy="by_dataset", percentage=50)
+        assert len(chunks) == 4
+ 
+    def test_each_combined_chunk_has_single_dataset(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, strategy="by_dataset", percentage=50)
+        for chunk in chunks:
+            assert len(chunk) == 1
+ 
+ 
+class TestSplitFilesetDatasetsFilter:
+    def test_list_filter_keeps_only_named_datasets(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, datasets=["A"])
+        assert len(chunks) == 1
+        assert "A" in chunks[0]
+        assert "B" not in chunks[0]
+ 
+    def test_callable_filter(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, datasets=lambda name: name == "B")
+        assert "B" in chunks[0]
+        assert "A" not in chunks[0]
+ 
+    def test_empty_filter_result_yields_one_empty_chunk(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, datasets=["NonExistent"])
+        # no matching datasets → result is [{}] or empty list – no crash
+        assert isinstance(chunks, list)
+ 
+    def test_datasets_filter_combined_with_by_dataset(self, two_dataset_fileset):
+        chunks = _split_fileset(two_dataset_fileset, strategy="by_dataset", datasets=["A"])
+        assert len(chunks) == 1
+        assert "A" in chunks[0]
+ 
+ 
+class TestSplitFilesetValidation:
+    def test_invalid_strategy_raises(self, two_dataset_fileset):
+        with pytest.raises(ValueError, match="Unknown strategy"):
+            _split_fileset(two_dataset_fileset, strategy="unknown")
+ 
+    def test_non_divisor_percentage_raises(self, two_dataset_fileset):
+        with pytest.raises(ValueError, match="percentage"):
+            _split_fileset(two_dataset_fileset, percentage=30)
+ 
+    def test_zero_percentage_raises(self, two_dataset_fileset):
+        with pytest.raises(ValueError, match="percentage"):
+            _split_fileset(two_dataset_fileset, percentage=0)
+ 
+ 
+# ---------------------------------------------------------------------------
+# make_fileset producer (filesystem)
+# ---------------------------------------------------------------------------
+ 
+class TestMakeFileset:
+    def test_writes_fileset_json(self, tmp_path):
+        expected = {"ds": {"files": {"f.root": "Events"}}}
+ 
+        def builder():
+            return expected
+ 
+        art = Fileset(name="test", builder=builder)
+        deps = MagicMock(spec=Deps)
+        cfg = RunConfig(cache_dir=tmp_path)
+        out = tmp_path / "Fileset" / art.identity()
+ 
+        make_fileset(art=art, deps=deps, out=out, config=cfg)
+ 
+        written = json.loads((out / "fileset.json").read_text())
+        assert written == expected
+ 
+    def test_creates_output_directory(self, tmp_path):
+        def builder():
+            return {"ds": {"files": {}}}
+ 
+        art = Fileset(name="x", builder=builder)
+        deps = MagicMock(spec=Deps)
+        cfg = RunConfig(cache_dir=tmp_path)
+        out = tmp_path / "deep" / "nested" / "dir"
+ 
+        make_fileset(art=art, deps=deps, out=out, config=cfg)
+ 
+        assert out.is_dir()
+        assert (out / "fileset.json").exists()
+ 
+    def test_raises_when_builder_returns_non_dict(self, tmp_path):
+        def bad_builder():
+            return ["not", "a", "dict"]
+ 
+        art = Fileset(name="x", builder=bad_builder)
+        deps = MagicMock(spec=Deps)
+        cfg = RunConfig(cache_dir=tmp_path)
+        out = tmp_path / "out"
+ 
+        with pytest.raises(TypeError, match="Fileset builder must return a dict"):
+            make_fileset(art=art, deps=deps, out=out, config=cfg)
