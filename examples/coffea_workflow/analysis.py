@@ -4,7 +4,9 @@ import coffea.processor as processor
 import awkward as ak
 from coffea.nanoevents import schemas
 
-def get_fileset():
+def get_fileset(to_print=None):
+    if to_print:
+        print(to_print)
     fileset = {'SingleMu_0':
            {"files":  {
                # broken link

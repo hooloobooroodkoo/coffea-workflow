@@ -47,9 +47,7 @@ USE_TRITON = False
 
 
 ### FILESET
-def get_fileset(to_print=None):
-    if to_print:
-        print(to_print)
+def get_fileset():
     fileset = utils.file_input.construct_fileset(
     N_FILES_MAX_PER_SAMPLE,
     use_xcache=False,
