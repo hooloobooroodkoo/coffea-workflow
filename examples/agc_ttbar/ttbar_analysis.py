@@ -47,7 +47,9 @@ USE_TRITON = False
 
 
 ### FILESET
-def get_fileset():
+def get_fileset(to_print=None):
+    if to_print:
+        print(to_print)
     fileset = utils.file_input.construct_fileset(
     N_FILES_MAX_PER_SAMPLE,
     use_xcache=False,
@@ -55,7 +57,6 @@ def get_fileset():
     input_from_eos=utils.config["benchmarking"]["INPUT_FROM_EOS"],
     xcache_atlas_prefix=utils.config["benchmarking"]["XCACHE_ATLAS_PREFIX"],
 )
-
     print(f"processes in fileset: {list(fileset.keys())}")
     print(f"\nexample of information in fileset:\n{{\n  'files': [{fileset['ttbar__nominal']['files'][0]}, ...],")
     print(f"  'metadata': {fileset['ttbar__nominal']['metadata']}\n}}")

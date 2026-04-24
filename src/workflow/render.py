@@ -30,7 +30,7 @@ def _topo_order(num_steps, edges):
     return order
 
 
-def _build_artifact(step_type, name, builder, upstream):
+def _build_artifact(step_type, name, builder, builder_params, upstream):
     """
     As I wanted user to only have to define name and builder(from the Step values), 
     but artifacts can require some specific parameter which are results of execution
@@ -42,16 +42,16 @@ def _build_artifact(step_type, name, builder, upstream):
     _build_artifact(Analysis, "SingleMuonAnalysis", "analysis:run_analysis", upstream=[<Fileset artifact from step 1>])
 
     get_type_hints(Analysis) returns:
-        {"name": str, "fileset": Fileset, "builder": str}
+        {"name": str, "fileset": Fileset, "builder": str, "params": str}
     name -> skip
     fileset -> Fileset is a subclass of ArtifactBase → scan upstream → finds the Fileset artifact → kwargs["fileset"] = <that artifact>
     builder -> skip
 
     """
     hints = typing.get_type_hints(step_type)
-    kwargs = {"name": name, "builder": builder}
+    kwargs = {"name": name, "builder": builder, "builder_params": builder_params}
     for field_name, field_type in hints.items():
-        if field_name in ("name", "builder"):
+        if field_name in ("name", "builder", "builder_params"):
             continue
         if isinstance(field_type, type) and issubclass(field_type, ArtifactBase):
             match = next((a for a in upstream if isinstance(a, field_type)), None)
@@ -132,10 +132,10 @@ def render(workflow: Workflow, config: RunConfig):
         step_name = step.name
 
         upstream = [artifact_by_idx[src] for src, dst in workflow.edges if dst == idx]
-        artifact = _build_artifact(step.step_type, step_name, step.builder, upstream)
+        artifact = _build_artifact(step.step_type, step_name, step.builder, step.builder_params, upstream)
 
         print(
-            f"Executing step '{step_name}' of type '{step.step_type.__name__}' with the user code {step.builder}"
+            f"Executing step '{step_name}' of type '{step.step_type.__name__}' with the user code {step.builder} and user parameters {step.builder_params}"
         )
         path = executor.materialize(artifact)
         print(f"  -> materialized at {path}")

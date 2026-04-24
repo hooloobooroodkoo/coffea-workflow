@@ -23,9 +23,10 @@ class Step:
     name: str
     step_type: Type
     builder: str | Callable
+    builder_params: dict | None = None
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "step_type": self.step_type.__name__, "builder": _builder_key(self.builder)}
+        return {"name": self.name, "step_type": self.step_type.__name__, "builder": _builder_key(self.builder), "builder_params": str(self.builder_params.items())}
 
 @dataclass
 class Workflow:

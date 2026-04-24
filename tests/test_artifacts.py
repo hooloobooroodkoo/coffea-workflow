@@ -10,6 +10,7 @@ Covers:
 import pytest
 from workflow.artifacts import (
     _builder_key,
+    _to_params_tuple,
     Fileset,
     Chunking,
     ChunkAnalysis,
@@ -22,8 +23,32 @@ from workflow.artifacts import (
  
 def _some_fn():
     pass
- 
- 
+
+
+# ---------------------------------------------------------------------------
+# _to_params_tuple
+# ---------------------------------------------------------------------------
+
+class TestToParamsTuple:
+    def test_none_returns_empty_tuple(self):
+        assert _to_params_tuple(None) == ()
+
+    def test_empty_dict_returns_empty_tuple(self):
+        assert _to_params_tuple({}) == ()
+
+    def test_dict_is_sorted_by_key(self):
+        result = _to_params_tuple({"b": 2, "a": 1})
+        assert result == (("a", 1), ("b", 2))
+
+    def test_already_tuple_passthrough(self):
+        t = (("x", 10),)
+        assert _to_params_tuple(t) == t
+
+    def test_roundtrip_dict(self):
+        params = {"foo": "bar", "n": 42}
+        assert dict(_to_params_tuple(params)) == params
+
+
 # ---------------------------------------------------------------------------
 # _builder_key
 # ---------------------------------------------------------------------------
@@ -90,8 +115,36 @@ class TestFileset:
         fs = Fileset(name="x", builder="mod:fn")
         with pytest.raises(Exception):
             fs.name = "y"
- 
- 
+
+    def test_builder_params_dict_stored_as_sorted_tuple(self):
+        fs = Fileset(name="x", builder="mod:fn", builder_params={"b": 2, "a": 1})
+        assert fs.builder_params == (("a", 1), ("b", 2))
+
+    def test_builder_params_keys_returns_dict(self):
+        fs = Fileset(name="x", builder="mod:fn", builder_params={"k": "v"})
+        assert fs.keys()["builder_params"] == {"k": "v"}
+
+    def test_builder_params_empty_by_default(self):
+        fs = Fileset(name="x", builder="mod:fn")
+        assert fs.builder_params == ()
+        assert fs.keys()["builder_params"] == {}
+
+    def test_identity_changes_with_builder_params(self):
+        fs1 = Fileset(name="x", builder="mod:fn", builder_params={"k": 1})
+        fs2 = Fileset(name="x", builder="mod:fn", builder_params={"k": 2})
+        assert fs1.identity() != fs2.identity()
+
+    def test_identity_stable_with_same_builder_params(self):
+        fs1 = Fileset(name="x", builder="mod:fn", builder_params={"k": 1})
+        fs2 = Fileset(name="x", builder="mod:fn", builder_params={"k": 1})
+        assert fs1.identity() == fs2.identity()
+
+    def test_identity_differs_with_vs_without_builder_params(self):
+        fs1 = Fileset(name="x", builder="mod:fn")
+        fs2 = Fileset(name="x", builder="mod:fn", builder_params={"k": 1})
+        assert fs1.identity() != fs2.identity()
+
+
 # ---------------------------------------------------------------------------
 # Chunking
 # ---------------------------------------------------------------------------
@@ -163,8 +216,26 @@ class TestChunkAnalysis:
         ca1 = ChunkAnalysis(chunk_file="c.json", chunking=chunking, analysis_builder="mod:run_v1")
         ca2 = ChunkAnalysis(chunk_file="c.json", chunking=chunking, analysis_builder="mod:run_v2")
         assert ca1.identity() != ca2.identity()
- 
- 
+
+    def test_builder_params_stored_as_sorted_tuple(self, chunking):
+        ca = ChunkAnalysis(chunk_file="c.json", chunking=chunking, analysis_builder="mod:run", builder_params={"z": 9, "a": 1})
+        assert ca.builder_params == (("a", 1), ("z", 9))
+
+    def test_builder_params_keys_returns_dict(self, chunking):
+        ca = ChunkAnalysis(chunk_file="c.json", chunking=chunking, analysis_builder="mod:run", builder_params={"p": "q"})
+        assert ca.keys()["builder_params"] == {"p": "q"}
+
+    def test_builder_params_empty_by_default(self, chunking):
+        ca = ChunkAnalysis(chunk_file="c.json", chunking=chunking, analysis_builder="mod:run")
+        assert ca.builder_params == ()
+        assert ca.keys()["builder_params"] == {}
+
+    def test_identity_changes_with_builder_params(self, chunking):
+        ca1 = ChunkAnalysis(chunk_file="c.json", chunking=chunking, analysis_builder="mod:run", builder_params={"k": 1})
+        ca2 = ChunkAnalysis(chunk_file="c.json", chunking=chunking, analysis_builder="mod:run", builder_params={"k": 2})
+        assert ca1.identity() != ca2.identity()
+
+
 # ---------------------------------------------------------------------------
 # Analysis
 # ---------------------------------------------------------------------------
@@ -203,8 +274,26 @@ class TestAnalysis:
         an1 = Analysis(name="an", fileset=fs1, builder="mod:run")
         an2 = Analysis(name="an", fileset=fs2, builder="mod:run")
         assert an1.identity() != an2.identity()
- 
- 
+
+    def test_builder_params_stored_as_sorted_tuple(self, fs):
+        an = Analysis(name="an", fileset=fs, builder="mod:run", builder_params={"z": 3, "a": 1})
+        assert an.builder_params == (("a", 1), ("z", 3))
+
+    def test_builder_params_keys_returns_dict(self, fs):
+        an = Analysis(name="an", fileset=fs, builder="mod:run", builder_params={"x": 42})
+        assert an.keys()["builder_params"] == {"x": 42}
+
+    def test_builder_params_empty_by_default(self, fs):
+        an = Analysis(name="an", fileset=fs, builder="mod:run")
+        assert an.builder_params == ()
+        assert an.keys()["builder_params"] == {}
+
+    def test_identity_changes_with_builder_params(self, fs):
+        an1 = Analysis(name="an", fileset=fs, builder="mod:run", builder_params={"k": "v1"})
+        an2 = Analysis(name="an", fileset=fs, builder="mod:run", builder_params={"k": "v2"})
+        assert an1.identity() != an2.identity()
+
+
 # ---------------------------------------------------------------------------
 # Plotting
 # ---------------------------------------------------------------------------
@@ -238,8 +327,26 @@ class TestPlotting:
         pl1 = Plotting(name="p1", analysis=analysis, builder="mod:plot")
         pl2 = Plotting(name="p2", analysis=analysis, builder="mod:plot")
         assert pl1.identity() != pl2.identity()
- 
- 
+
+    def test_builder_params_stored_as_sorted_tuple(self, analysis):
+        pl = Plotting(name="p", analysis=analysis, builder="mod:plot", builder_params={"y": 0, "a": 5})
+        assert pl.builder_params == (("a", 5), ("y", 0))
+
+    def test_builder_params_keys_returns_dict(self, analysis):
+        pl = Plotting(name="p", analysis=analysis, builder="mod:plot", builder_params={"color": "red"})
+        assert pl.keys()["builder_params"] == {"color": "red"}
+
+    def test_builder_params_empty_by_default(self, analysis):
+        pl = Plotting(name="p", analysis=analysis, builder="mod:plot")
+        assert pl.builder_params == ()
+        assert pl.keys()["builder_params"] == {}
+
+    def test_identity_changes_with_builder_params(self, analysis):
+        pl1 = Plotting(name="p", analysis=analysis, builder="mod:plot", builder_params={"bins": 10})
+        pl2 = Plotting(name="p", analysis=analysis, builder="mod:plot", builder_params={"bins": 20})
+        assert pl1.identity() != pl2.identity()
+
+
 # ---------------------------------------------------------------------------
 # ARTIFACT_REGISTRY
 # ---------------------------------------------------------------------------
