@@ -12,7 +12,8 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
  
-from workflow.default_producers import _call_builder, _load_object, _split_fileset, make_fileset
+from workflow.producers_utils import _call_builder, _load_object, _split_fileset
+from workflow.default_producers import make_fileset
 from workflow.artifacts import Fileset
 from workflow.config import RunConfig
 from workflow.deps import Deps
