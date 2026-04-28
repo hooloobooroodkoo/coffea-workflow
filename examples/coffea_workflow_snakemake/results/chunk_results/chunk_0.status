@@ -1,1 +1,1 @@
-ok
+failed: Err(OSError('Failed to submit <bound method File.open of <XRootD.client.file.File object at 0x7f59e01b6870>> request: [FATAL] Invalid address'))
