@@ -1,0 +1,7 @@
+{
+  "n_chunks": 2,
+  "output_files": {
+    "0": "chunk_0.json",
+    "1": "chunk_1.json"
+  }
+}

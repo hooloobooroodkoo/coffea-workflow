@@ -1,0 +1,10 @@
+fileset_builder: "analysis:get_fileset"
+analysis_builder: "analysis:run_analysis"
+plot_builder: "analysis:plot_results"
+
+# splitting strategy
+strategy: "by_dataset"
+
+percentage: null
+
+datasets: null
