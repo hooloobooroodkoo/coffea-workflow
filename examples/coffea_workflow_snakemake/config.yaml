@@ -5,6 +5,6 @@ plot_builder: "analysis:plot_results"
 # splitting strategy
 strategy: "by_dataset"
 
-percentage: null
+percentage: 50
 
 datasets: null

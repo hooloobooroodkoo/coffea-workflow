@@ -3,9 +3,10 @@ from .config import RunConfig
 import importlib
 import math
 from typing import Any
+from path import Path
 
 
-def _call_builder(fn, *args, config: RunConfig | None = None, builder_params: dict | None = None) -> Any:
+def _call_builder(fn, *args, config=None, out=None, builder_params=None):
     """
     Call fn(*args), injecting config as a kwarg if the function accepts it.
     For example, user uses client histserv in analysis function.
@@ -14,6 +15,8 @@ def _call_builder(fn, *args, config: RunConfig | None = None, builder_params: di
     sig = inspect.signature(fn).parameters
     if config is not None and "config" in sig:
         kwargs["config"] = config
+    if out is not None and "out" in sig:
+        kwargs["out"] = out
     if builder_params:
         for k, v in builder_params.items():
             if k in sig:
@@ -21,6 +24,19 @@ def _call_builder(fn, *args, config: RunConfig | None = None, builder_params: di
         print(f"\nkwargs: {kwargs}")
     return fn(*args, **kwargs)
 
+def _load_artifact_output(art, path: Path):
+    """
+    Load the payload of any materialized artifact generically.
+    """
+    if art.type_name == "Fileset":
+        import json
+        return json.loads((path / "fileset.json").read_text())
+    payload_path = path / "payload.pkl"
+    if payload_path.exists():
+        import cloudpickle
+        return cloudpickle.loads(payload_path.read_bytes())
+    return None
+    
 def _extract_acc(result) -> Any:
     """
     Depending on the processor implementation, the user can return the accumulator or something else.

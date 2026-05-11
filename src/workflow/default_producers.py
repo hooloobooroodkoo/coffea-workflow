@@ -3,12 +3,12 @@ import json
 from pathlib import Path
 from typing import Any
 import cloudpickle
-from .artifacts import Fileset, Analysis, Chunking, ChunkAnalysis, Plotting, _builder_key
+from .artifacts import Fileset, Analysis, Chunking, ChunkAnalysis, Plotting, CustomArtifact, _builder_key
 from .deps import Deps
 from .producers import producer
 from .config import RunConfig
 from coffea.processor import accumulate
-from .producers_utils import _call_builder, _extract_acc, _load_object, _split_fileset
+from .producers_utils import _call_builder, _extract_acc, _load_object, _split_fileset, _load_artifact_output
 
 @producer(Fileset)
 def make_fileset(*, art: Fileset, deps: Deps, out: Path, config: RunConfig) -> None:
@@ -156,3 +156,18 @@ def make_plot(*, art: Plotting, deps: Deps, out: Path, config: RunConfig) -> Non
     else:
         plot_result = _call_builder(fn, payload, builder_params=dict(art.builder_params))
     (out / "payload.pkl").write_bytes(cloudpickle.dumps(plot_result))
+
+
+@producer(CustomArtifact)
+def run_custom(*, art: CustomArtifact, deps: Deps, out: Path, config: RunConfig) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+
+    upstream_results = []
+    for upstream_art in art.upstreams:
+        upstream_path = deps.need(upstream_art)
+        upstream_results.append(_load_artifact_output(upstream_art, upstream_path))
+
+    fn = _load_object(art.builder)
+    result = _call_builder(fn, upstream_results, out=out, config=config,
+                           builder_params=dict(art.builder_params))
+    (out / "payload.pkl").write_bytes(cloudpickle.dumps(result))

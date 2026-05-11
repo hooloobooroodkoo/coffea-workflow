@@ -1,8 +1,6 @@
 """
 Snakemake workflow replicating the coffea-workflow render() pipeline.
 
-Rules
------
 make_fileset      Build the fileset dict and write it as JSON.
 split_fileset     (checkpoint) Split the fileset into per-chunk JSON files.
                   Declared as a checkpoint so Snakemake re-evaluates the DAG

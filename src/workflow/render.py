@@ -3,7 +3,7 @@ import typing
 import cloudpickle
 from .config import RunConfig
 from .workflow import Workflow
-from .artifacts import ArtifactBase, Fileset, Analysis, Plotting
+from .artifacts import ArtifactBase, Fileset, Analysis, Plotting, CustomArtifact
 from pathlib import Path
 from .executor import Executor
 
@@ -29,7 +29,7 @@ def _topo_order(num_steps, edges):
         raise ValueError("Workflow has a cycle or disconnected dependency graph")
     return order
 
-
+            
 def _build_artifact(step_type, name, builder, builder_params, upstream):
     """
     As I wanted user to only have to define name and builder(from the Step values), 
@@ -53,6 +53,9 @@ def _build_artifact(step_type, name, builder, builder_params, upstream):
     for field_name, field_type in hints.items():
         if field_name in ("name", "builder", "builder_params"):
             continue
+        if field_name == "upstreams":          # injecting all upstream artifacts if it's a custom artifact
+            kwargs["upstreams"] = tuple(upstream)
+            continue 
         if isinstance(field_type, type) and issubclass(field_type, ArtifactBase):
             match = next((a for a in upstream if isinstance(a, field_type)), None)
             if match is None:
@@ -70,6 +73,9 @@ def _load_step_result(step_type, path: Path):
     if step_type is Analysis:
         return cloudpickle.loads((path / "payload.pkl").read_bytes())
     if step_type is Plotting:
+        payload_path = path / "payload.pkl"
+        return cloudpickle.loads(payload_path.read_bytes()) if payload_path.exists() else None
+    if step_type is CustomArtifact:
         payload_path = path / "payload.pkl"
         return cloudpickle.loads(payload_path.read_bytes()) if payload_path.exists() else None
     return None

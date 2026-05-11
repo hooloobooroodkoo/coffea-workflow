@@ -130,22 +130,6 @@ class ChunkAnalysis(ArtifactBase):
             "builder_params": dict(self.builder_params),
         }
 
-# most probably is not needed
-# @register_artifact
-# class Merging(ArtifactBase):
-#     """
-#     User doesn't use this artifact, it's a helping artifact that is produced by Analysis artifact to merge succesfully processed chunks.
-#     ?????????????????
-#     """
-#     analysis_chunks: str[Path] # path to the folder with chunks to merge
-#     parameter: str # how to merge? what to merge?
-
-#     def keys(self):
-#         return {
-#             "analysis_chunks": self.analysis_chunks,
-#             "parameter": self.parameter,
-#         }
-
 @register_artifact
 @dataclass(frozen=True)
 class Analysis(ArtifactBase):
@@ -194,3 +178,29 @@ class Plotting(ArtifactBase):
             "builder": _builder_key(self.builder),
             "builder_params": dict(self.builder_params),
         }
+
+@register_artifact
+@dataclass(frozen=True)
+class CustomArtifact(ArtifactBase):
+    name: str
+    builder: str | Callable
+    builder_params: tuple = ()
+    upstreams: tuple = ()
+    identity_keys: tuple = ()
+
+    def __post_init__(self):
+        object.__setattr__(self, 'builder_params', _to_params_tuple(self.builder_params))
+        object.__setattr__(self, 'upstreams', tuple(self.upstreams))
+        object.__setattr__(self, 'identity_keys', tuple(self.identity_keys))
+
+    def _all_keys(self):
+        return {
+            "name": self.name,
+            "builder": _builder_key(self.builder),
+            "builder_params": dict(self.builder_params),
+            "upstreams": list(self.upstreams),
+        }
+
+    def keys(self):
+        all_keys = self._all_keys()
+        return all_keys

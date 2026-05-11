@@ -51,6 +51,7 @@ class Executor:
         "ChunkAnalysis": ".success",
         "Analysis": "payload.pkl",
         "Plotting": "payload.pkl",
+        "CustomArtifact": "payload.pkl", 
     }
 
     def exists(self, art: Artifact) -> bool:
