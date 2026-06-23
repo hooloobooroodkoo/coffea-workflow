@@ -4,7 +4,7 @@ import coffea.processor as processor
 import awkward as ak
 from coffea.nanoevents import schemas
 
-def get_fileset(to_print=None):
+def get_fileset_f(to_print=None):
     if to_print:
         print(to_print)
     fileset = {'SingleMu_0':
@@ -29,7 +29,7 @@ def get_fileset(to_print=None):
           }
     return fileset
 
-def custom_function_remove_last_file(fileset):
+def custom_function_remove_last_file_f(fileset):
     fileset = fileset[0]
     for key in fileset:
         files = fileset[key]["files"]
@@ -64,12 +64,12 @@ class Processor(processor.ProcessorABC):
     def postprocess(self, accumulator):
         pass
 
-def run_analysis(fileset, executor=None):
+def run_analysis_f(fileset, executor=None):
     run = processor.Runner(executor=executor, schema=schemas.NanoAODSchema, savemetrics=False, skipbadfiles=True,
                         use_result_type=True)
     result = run(fileset, Processor())
     return result
 
-def plot_results(result):
+def plot_results_f(result):
     hist_acc, metrics = result["processor_result"]
     hist_acc['MET'].plot1d()

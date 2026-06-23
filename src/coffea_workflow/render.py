@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import sys
 import typing
 import cloudpickle
 from .config import RunConfig
@@ -82,20 +83,26 @@ def _load_step_result(step_type, path: Path):
     return None
 
 
+
 def _print_summary(step_results: dict) -> None:
-    print("\n=== Run Summary ===")
+    # console.print() recursive flush() call was causing seeing
+    # the same non-empty buffer and recurses infinitely. Resulting in printing summary infinitely.
+    # to fix the bug proxy should be bypassed entirely
+    # by writing to the underlying stream (IPython OutStream on coffea-casa).
+    out = getattr(sys.stdout, "rich_proxied_file", sys.stdout)
+    print("\n=== Run Summary ===", file=out)
     for name, (step_type, result) in step_results.items():
         if step_type is Analysis and result is not None:
             ok = result["n_chunks_ok"]
             total = result["n_chunks_total"]
             failures = result["failures"]
             marker = "✓" if not failures else "!"
-            print(f"  {marker}  {name:<30} {step_type.__name__:<20} {ok}/{total} chunks OK")
+            print(f"  {marker}  {name:<30} {step_type.__name__:<20} {ok}/{total} chunks OK", file=out)
             for f in failures:
-                print(f"       FAILED {f['chunk_file']}: {f['error']}")
+                print(f"       FAILED {f['chunk_file']}: {f['error']}", file=out)
         else:
-            print(f"  ✓  {name:<30} {step_type.__name__}")
-    print()
+            print(f"  ✓  {name:<30} {step_type.__name__}", file=out)
+    print(file=out)
 
 
 def _print_dag(workflow: Workflow) -> None:
