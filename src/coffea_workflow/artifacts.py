@@ -38,6 +38,8 @@ class Artifact(Protocol):
 @dataclass(frozen=True)
 class ArtifactBase:
     always_rerun = False
+    input_type  = "any"
+    output_type = "any"
 
     def keys(self):
         raise NotImplementedError
@@ -58,6 +60,10 @@ class Fileset(ArtifactBase):
     """
     External artifact that user uses and defines the builder(his/her cutom script that returns fileset.json)
     """
+    
+    input_type  = "none"
+    output_type = "fileset_dict"
+    
     name: str
     builder: str | Callable
     builder_params: tuple = ()
@@ -139,10 +145,14 @@ class Analysis(ArtifactBase):
     Returns merged output and report failed chunks.
     - .cache/Analysis/<analysis_identity>/payload.pkl (with merged output)
     """
+    input_type  = "fileset_dict"
+    output_type = "analysis_payload"
+
     name: str
     fileset: ArtifactBase
     builder: str | Callable
     builder_params: tuple = ()
+
 
     def __post_init__(self):
         object.__setattr__(self, 'builder_params', _to_params_tuple(self.builder_params))
@@ -160,11 +170,14 @@ class Analysis(ArtifactBase):
 @dataclass(frozen=True)
 class Plotting(ArtifactBase):
     always_rerun = True
-
+    input_type   = "analysis_payload"
+    output_type  = "plot_result"
+    
     name: str
     analysis: ArtifactBase
     builder: str | Callable
     builder_params: tuple = ()
+    
      
     def __post_init__(self):
         object.__setattr__(self, 'builder_params', _to_params_tuple(self.builder_params))

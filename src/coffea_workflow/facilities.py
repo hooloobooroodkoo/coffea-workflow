@@ -229,8 +229,22 @@ class CoffeaCasaFactory(FacilityBase):
         # Upload files before installing packages
         files = (ec.worker_files if ec else ()) or self.worker_files
         for f in files:
-            client.upload_file(f, load=False)
-            print(f"Uploaded {f} to workers")
+            try:
+                client.upload_file(f, load=False)
+                print(f"Uploaded {f} to workers")
+            except IsADirectoryError:
+                folder = Path(f)
+                print(f"{folder.name}/ is a directory, zipping...")
+                zip_path = shutil.make_archive(
+                    str(folder.resolve()),
+                    "zip",
+                    root_dir=str(folder.parent.resolve()),
+                    base_dir=folder.name,
+                )
+                # load=True is required for zips: Dask must add the zip itself to
+                # sys.path so Python's zipimport can find the package inside it.
+                client.upload_file(zip_path, load=True)
+                print(f"Uploaded {folder.name}/ as {folder.name}.zip to workers")
 
         packages = list((ec.worker_packages if ec else ()) or self.worker_packages)
         if packages:

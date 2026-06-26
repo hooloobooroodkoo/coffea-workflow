@@ -138,12 +138,10 @@ def _resolve_step_config(workflow_config: RunConfig, step: Step) -> RunConfig:
         executor_config=effective_ec,
     )
 
-
-def render(workflow: Workflow, config: RunConfig):
+def run(workflow: Workflow, config: RunConfig):
     """
-    Executes DAG, sorts the steps to begin with the last one
-    (the last will trigger all the dependencies and will materialize
-    the artifacts starting from the first one - Fileset).
+    Executes the workflow DAG in topological order, materialising each artifact
+    and returning cached results where available.
     """
     cache_dir = Path(config.cache_dir)
     executor = Executor(cache_dir=cache_dir, config=config)
