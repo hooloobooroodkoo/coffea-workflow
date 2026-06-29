@@ -79,7 +79,7 @@ def run_analysis(fileset, config):
     # run the processor
     executor_inst = processor.FuturesExecutor()
     run = processor.Runner(executor=executor_inst, schema=schemas.NanoAODSchema,
-                           savemetrics=True, use_result_type=True)
+                           savemetrics=True, skipbadfiles=True, use_result_type=True)
     proc = Processor(remote_hist=remote_hist)
     result = run(fileset, proc)
 

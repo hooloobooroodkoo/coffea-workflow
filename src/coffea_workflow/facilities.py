@@ -335,6 +335,95 @@ class LxplusFactory(FacilityBase):
                 "  voms-proxy-init --voms cms --valid 192:00"
             )
 
+        if self.worker_image is None:
+            self.worker_image = self._run_wizard()
+
+    def _run_wizard(self) -> str:
+        """Prompt the user for image details, build the SIF inline, return its path."""
+        print()
+        print("=" * 60)
+        print("LxplusFactory: no worker_image configured.")
+        print("Let's build an Apptainer image for your analysis workers.")
+        print("=" * 60)
+        print()
+
+        raw = input("Image name [worker.sif]: ").strip()
+        sif_name = raw if raw else "worker.sif"
+        if not sif_name.endswith(".sif"):
+            sif_name += ".sif"
+
+        print()
+        print("Extra packages to install in the image (comma-separated, or Enter to skip).")
+        print("Tip: pin versions with:")
+        print("  pip freeze | grep -E 'coffea|uproot|awkward|hist|vector|dask|correctionlib'")
+        raw_pkgs = input("Extra packages: ").strip()
+        extra_packages = tuple(p.strip() for p in raw_pkgs.split(",") if p.strip())
+
+        def_name = Path(sif_name).with_suffix(".def").name
+        print()
+        generate_apptainer_def(
+            output=def_name,
+            extra_packages=extra_packages,
+            _print_build_instructions=False,
+        )
+
+        print(f"Building {sif_name} on a Condor batch node — this takes several minutes.")
+        print("Apptainer output will appear below.\n")
+        self._build_sif_inline(def_name, sif_name)
+
+        sif_path = str(Path(sif_name).resolve())
+        print(f"\nImage ready: {sif_path}")
+        print("Proceeding with analysis...\n")
+        return sif_path
+
+    def _build_sif_inline(self, def_name: str, sif_name: str) -> None:
+        """Submit a condor interactive job to build the SIF, blocking until done."""
+        cwd = Path.cwd().resolve()
+        abs_def = cwd / def_name
+        abs_sif = cwd / sif_name
+
+        build_script = cwd / "_build_worker.sh"
+        build_script.write_text(textwrap.dedent(f"""\
+            #!/bin/bash
+            set -e
+            cd {cwd}
+            apptainer build --fakeroot {abs_sif} {abs_def}
+        """))
+        build_script.chmod(0o755)
+
+        submit_file = cwd / "_build_worker.sub"
+        submit_file.write_text(textwrap.dedent(f"""\
+            executable = {build_script}
+            should_transfer_files = NO
+            +JobFlavour = "longlunch"
+            queue
+        """))
+
+        try:
+            result = subprocess.run(
+                ["condor_submit", "-interactive", str(submit_file)],
+            )
+        finally:
+            build_script.unlink(missing_ok=True)
+            submit_file.unlink(missing_ok=True)
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"condor_submit -interactive failed (exit {result.returncode}).\n"
+                f"To build manually on a batch node:\n"
+                f"  condor_submit -interactive\n"
+                f"  apptainer build --fakeroot {sif_name} {def_name}\n"
+                f"Then rerun your script with:\n"
+                f"  LxplusFactory(worker_image='{sif_name}', ...)"
+            )
+
+        if not abs_sif.exists():
+            raise RuntimeError(
+                f"Condor job finished but {sif_name} was not found in {cwd}.\n"
+                f"Check the job logs for apptainer errors, then rerun with:\n"
+                f"  LxplusFactory(worker_image='{sif_name}', ...)"
+            )
+
     def build(self, ec: ExecutorConfig | None) -> Any:
         import sys
         from coffea.processor import IterativeExecutor, FuturesExecutor, DaskExecutor

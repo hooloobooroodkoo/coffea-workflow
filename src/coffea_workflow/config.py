@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 from abc import ABC, abstractmethod
 
-SplitStrategy = Literal["by_dataset"] | None
+SplitStrategy = Optional[Literal["by_dataset"]]
 
 
 class FacilityBase(ABC):
