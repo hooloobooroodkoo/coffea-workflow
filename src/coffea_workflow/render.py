@@ -143,6 +143,9 @@ def run(workflow: Workflow, config: RunConfig):
     Executes the workflow DAG in topological order, materialising each artifact
     and returning cached results where available.
     """
+    if config.facility is not None:
+        config.facility.preflight()
+
     cache_dir = Path(config.cache_dir)
     executor = Executor(cache_dir=cache_dir, config=config)
     _print_dag(workflow)

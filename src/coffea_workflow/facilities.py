@@ -6,14 +6,21 @@ Usage:
 
     config = RunConfig(facility=facilities.coffea_casa)
     config = RunConfig(facility=facilities.local)
+
+    # With a pre-built image:
     config = RunConfig(facility=facilities.LxplusFactory(
-        worker_image="/cvmfs/.../coffea-dask.sif",
+        worker_image="/afs/cern.ch/user/u/user/worker.sif",
         queue="longlunch",
         workers=10,
     ))
 
+    # Without an image — running locally generates worker.def and deployment
+    # instructions; copy the folder to lxplus and follow the printed steps:
+    config = RunConfig(facility=facilities.LxplusFactory())
+
 Each factory owns:
-  - preflight(): checks prerequisites, raises RuntimeError with exact fix commands
+  - preflight(): checks prerequisites, raises RuntimeError with exact fix commands;
+                 for LxplusFactory with no worker_image, runs the image-build wizard
   - build(ec):   creates and returns a coffea executor
   - close():     tears down any created resources (e.g. Dask cluster)
 
@@ -29,7 +36,6 @@ import shutil
 import socket
 import subprocess
 import importlib.util
-import warnings
 from dataclasses import dataclass
 from typing import Any
 from pathlib import Path
@@ -60,6 +66,7 @@ def generate_apptainer_def(
     coffea_source: str = _DEFAULT_COFFEA_SOURCE,
     coffea_workflow_source: str = _DEFAULT_COFFEA_WORKFLOW_SOURCE,
     extra_packages: tuple[str, ...] = (),
+    _print_build_instructions: bool = True,
 ) -> str:
     """
     Write an Apptainer definition file for lxplus workers.
@@ -114,20 +121,21 @@ def generate_apptainer_def(
     print("  pip freeze | grep -E 'coffea|uproot|awkward|hist|vector|dask|correctionlib'")
     print("  Then pass them as: extra_packages=('uproot==5.x.y', 'awkward==2.x.y', ...)")
     print()
-    print("Build instructions:")
-    print(f"  1. scp {output} <username>@lxplus.cern.ch:~/{output}")
-    print("  2. scp -r /path/to/your/analysis <username>@lxplus.cern.ch:~/analysis")
-    print("  3. ssh <username>@lxplus.cern.ch")
-    print("  4. condor_submit -interactive        # get a batch node, wait for shell")
-    print(f"  5. cp ~/{output} .  &&  apptainer build --fakeroot {sif} {output}")
-    print(f"  6. cp {sif} ~/{sif}   # ~/  is AFS — same from login and batch nodes; wait, it's slow")
-    print()
-    print("To run directly:")
-    print("  voms-proxy-init --voms cms --valid 192:00")
-    print(f"  apptainer exec ~/{sif} python ~/path/to/your_script.py")
-    print()
-    print("Or with coffea-workflow LxplusFactory:")
-    print(f"  LxplusFactory(worker_image='~/{sif}', ...)")
+    if _print_build_instructions:
+        print("Build instructions:")
+        print(f"  1. scp {output} <username>@lxplus.cern.ch:~/{output}")
+        print("  2. scp -r /path/to/your/analysis <username>@lxplus.cern.ch:~/analysis")
+        print("  3. ssh <username>@lxplus.cern.ch")
+        print("  4. condor_submit -interactive        # get a batch node, wait for shell")
+        print(f"  5. cp ~/{output} .  &&  apptainer build --fakeroot {sif} {output}")
+        print(f"  6. cp {sif} ~/{sif}   # ~/  is AFS — same from login and batch nodes; wait, it's slow")
+        print()
+        print("To run directly:")
+        print("  voms-proxy-init --voms cms --valid 192:00")
+        print(f"  apptainer exec ~/{sif} python ~/path/to/your_script.py")
+        print()
+        print("Or with coffea-workflow LxplusFactory:")
+        print(f"  LxplusFactory(worker_image='~/{sif}', ...)")
 
     return output
 
@@ -267,12 +275,21 @@ class LxplusFactory(FacilityBase):
     running inside the specified Singularity/Apptainer image on CVMFS.
     Default executor is FuturesExecutor.
 
-    Requires:
+    Two-phase workflow:
+      1. Run locally (no lxplus needed): preflight() generates worker.def and
+         run_on_lxplus.sh, then prints exact scp + build + run commands.
+      2. On lxplus: copy the folder, build the Apptainer image on a batch node
+         via the printed instructions, then run `bash run_on_lxplus.sh`.
+
+    If worker_image is not provided on lxplus, the factory looks for worker.sif
+    in the current directory (built in step 2 above).
+
+    Requires on lxplus:
       - dask_jobqueue installed  (pip install dask-jobqueue)
       - a valid VOMS proxy       (voms-proxy-init --voms cms --valid 192:00)
       - HTCondor on PATH         (available on lxplus nodes)
     """
-    worker_image: str
+    worker_image: str | None = None
     queue: str = "longlunch"
     workers: int = 10
     cores: int = 1
@@ -292,14 +309,12 @@ class LxplusFactory(FacilityBase):
 
     def preflight(self) -> None:
         hostname = socket.gethostname()
-        if "lxplus" not in hostname:
-            warnings.warn(
-                f"LxplusFactory: running on {hostname!r}, expected an lxplus node. "
-                "HTCondor job submission may fail.",
-                UserWarning,
-                stacklevel=2,
-            )
 
+        if "lxplus" not in hostname:
+            self._run_local_setup()
+            raise SystemExit(0)
+
+        # --- On lxplus: check prerequisites ---
         if shutil.which("condor_q") is None:
             raise RuntimeError(
                 "HTCondor is not available on PATH. "
@@ -336,93 +351,78 @@ class LxplusFactory(FacilityBase):
             )
 
         if self.worker_image is None:
-            self.worker_image = self._run_wizard()
+            sif = Path("worker.sif")
+            if not sif.exists():
+                raise RuntimeError(
+                    "No worker_image set and worker.sif not found in the current directory.\n"
+                    "Run your script locally first — it will generate worker.def and\n"
+                    "print exact instructions for building the image and running on lxplus."
+                )
+            self.worker_image = str(sif.resolve())
 
-    def _run_wizard(self) -> str:
-        """Prompt the user for image details, build the SIF inline, return its path."""
+    def _run_local_setup(self) -> None:
+        """Generate worker.def and a run script, then print lxplus deployment instructions."""
+        import sys as _sys
+
         print()
         print("=" * 60)
-        print("LxplusFactory: no worker_image configured.")
-        print("Let's build an Apptainer image for your analysis workers.")
+        print("LxplusFactory: running locally — preparing lxplus deployment.")
         print("=" * 60)
-        print()
 
-        raw = input("Image name [worker.sif]: ").strip()
-        sif_name = raw if raw else "worker.sif"
-        if not sif_name.endswith(".sif"):
-            sif_name += ".sif"
+        def_path = Path("worker.def")
+        if def_path.exists():
+            print(f"\nworker.def already exists — keeping it.")
+        else:
+            print("\nNo worker.def found. Creating one.")
+            print("Tip: check what's in your current environment with:")
+            print("  pip freeze | grep -E 'coffea|uproot|awkward|hist|vector|dask|correctionlib'")
+            raw_pkgs = input(
+                "Extra packages to install in the image "
+                "(comma-separated, or Enter to skip): "
+            ).strip()
+            extra_packages = tuple(p.strip() for p in raw_pkgs.split(",") if p.strip())
+            generate_apptainer_def(
+                output="worker.def",
+                extra_packages=extra_packages,
+                _print_build_instructions=False,
+            )
+            print("worker.def created.")
 
-        print()
-        print("Extra packages to install in the image (comma-separated, or Enter to skip).")
-        print("Tip: pin versions with:")
-        print("  pip freeze | grep -E 'coffea|uproot|awkward|hist|vector|dask|correctionlib'")
-        raw_pkgs = input("Extra packages: ").strip()
-        extra_packages = tuple(p.strip() for p in raw_pkgs.split(",") if p.strip())
+        sif_name = Path(self.worker_image).name if self.worker_image else "worker.sif"
+        entry_script = Path(_sys.argv[0]).name
+        if not entry_script.endswith(".py"):
+            entry_script = "run.py"
 
-        def_name = Path(sif_name).with_suffix(".def").name
-        print()
-        generate_apptainer_def(
-            output=def_name,
-            extra_packages=extra_packages,
-            _print_build_instructions=False,
-        )
-
-        print(f"Building {sif_name} on a Condor batch node — this takes several minutes.")
-        print("Apptainer output will appear below.\n")
-        self._build_sif_inline(def_name, sif_name)
-
-        sif_path = str(Path(sif_name).resolve())
-        print(f"\nImage ready: {sif_path}")
-        print("Proceeding with analysis...\n")
-        return sif_path
-
-    def _build_sif_inline(self, def_name: str, sif_name: str) -> None:
-        """Submit a condor interactive job to build the SIF, blocking until done."""
-        cwd = Path.cwd().resolve()
-        abs_def = cwd / def_name
-        abs_sif = cwd / sif_name
-
-        build_script = cwd / "_build_worker.sh"
-        build_script.write_text(textwrap.dedent(f"""\
+        lxplus_script = Path("run_on_lxplus.sh")
+        lxplus_script.write_text(textwrap.dedent(f"""\
             #!/bin/bash
             set -e
-            cd {cwd}
-            apptainer build --fakeroot {abs_sif} {abs_def}
+            voms-proxy-init --voms cms --valid 192:00
+            apptainer exec ./{sif_name} python3 {entry_script}
         """))
-        build_script.chmod(0o755)
+        lxplus_script.chmod(0o755)
+        print("run_on_lxplus.sh created.")
 
-        submit_file = cwd / "_build_worker.sub"
-        submit_file.write_text(textwrap.dedent(f"""\
-            executable = {build_script}
-            should_transfer_files = NO
-            +JobFlavour = "longlunch"
-            queue
-        """))
+        cwd = Path.cwd()
+        folder = cwd.name
 
-        try:
-            result = subprocess.run(
-                ["condor_submit", "-interactive", str(submit_file)],
-            )
-        finally:
-            build_script.unlink(missing_ok=True)
-            submit_file.unlink(missing_ok=True)
-
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"condor_submit -interactive failed (exit {result.returncode}).\n"
-                f"To build manually on a batch node:\n"
-                f"  condor_submit -interactive\n"
-                f"  apptainer build --fakeroot {sif_name} {def_name}\n"
-                f"Then rerun your script with:\n"
-                f"  LxplusFactory(worker_image='{sif_name}', ...)"
-            )
-
-        if not abs_sif.exists():
-            raise RuntimeError(
-                f"Condor job finished but {sif_name} was not found in {cwd}.\n"
-                f"Check the job logs for apptainer errors, then rerun with:\n"
-                f"  LxplusFactory(worker_image='{sif_name}', ...)"
-            )
+        print()
+        print("=" * 60)
+        print("Next steps:")
+        print()
+        print("1. Copy this folder to lxplus:")
+        print(f"   scp -r {cwd} <username>@lxplus.cern.ch:~/{folder}")
+        print()
+        print("2. Build the Apptainer image on a batch node:")
+        print("   ssh <username>@lxplus.cern.ch")
+        print(f"   cd ~/{folder}")
+        print("   condor_submit -interactive    # wait for the batch shell")
+        print(f"   cd ~/{folder}               # batch starts in a scratch dir; AFS is shared")
+        print(f"   apptainer build --fakeroot {sif_name} worker.def")
+        print()
+        print("3. Run the analysis:")
+        print(f"   bash run_on_lxplus.sh")
+        print("=" * 60)
 
     def build(self, ec: ExecutorConfig | None) -> Any:
         import sys

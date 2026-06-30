@@ -1,0 +1,13 @@
+{
+  "n_chunks": 2,
+  "output_files": {
+    "0": {
+      "file": "fileset_chunk_0.json",
+      "hash": "770490f1e2afa8a3bd42918a1fa6859e6f63de7a86c9e74b2cdbd97330bc3e11"
+    },
+    "1": {
+      "file": "fileset_chunk_1.json",
+      "hash": "d73666d309681b466efd20014dafd2af3df6182396aad37aa68e1d8f074af219"
+    }
+  }
+}
