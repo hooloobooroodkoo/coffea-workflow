@@ -398,7 +398,13 @@ class LxplusFactory(FacilityBase):
             #!/bin/bash
             set -e
             voms-proxy-init --voms cms --valid 192:00
-            apptainer exec ./{sif_name} python3 {entry_script}
+            KRB5DIR=$(dirname ${{KRB5CCNAME#FILE:}})
+            apptainer exec \\
+              --bind /tmp \\
+              --bind /etc/condor \\
+              --bind "$KRB5DIR" \\
+              --env KRB5CCNAME=$KRB5CCNAME \\
+              ./{sif_name} python3 {entry_script}
         """))
         lxplus_script.chmod(0o755)
         print("run_on_lxplus.sh created.")
@@ -422,6 +428,10 @@ class LxplusFactory(FacilityBase):
         print()
         print("3. Run the analysis:")
         print(f"   bash run_on_lxplus.sh")
+        print()
+        print(f"The built {sif_name} is saved in ~/{folder}/ on AFS — it persists")
+        print("between sessions and is picked up automatically on subsequent runs.")
+        print("Rebuild only if you change packages or update coffea/coffea-workflow.")
         print("=" * 60)
 
     def build(self, ec: ExecutorConfig | None) -> Any:
@@ -469,6 +479,8 @@ class LxplusFactory(FacilityBase):
             job_extra_directives={
                 "+SingularityImage": f'"{worker_image}"',
                 "+JobFlavour": f'"{self.queue}"',
+                "stream_output": "False",
+                "stream_error": "False",
             },
         )
         n_workers = (ec.workers if ec else None) or self.workers

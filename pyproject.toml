@@ -5,6 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "coffea_workflow"
 version = "0.1.0"
+dependencies = [
+    "coffea @ git+https://github.com/hooloobooroodkoo/coffea.git@processor_result_type",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
