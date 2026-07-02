@@ -37,3 +37,5 @@ dist
 .cache_coffea_casa_dask_failed_file/
 .cache_coffea_casa_failed_file/
 utils.zip
+.cache_sequential_with_failure/
+.cache_parallel_with_failure/

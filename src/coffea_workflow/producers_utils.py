@@ -1,11 +1,24 @@
 import inspect
 import importlib
+import sys
 from typing import TYPE_CHECKING, Any
 
 from coffea.dataset_tools.splitting import split_fileset as _split_fileset
 
 if TYPE_CHECKING:
     from .config import FacilityBase, ExecutorConfig
+
+
+def _safe_print(*args, **kwargs):
+    """
+    Print directly to the underlying stream, bypassing the Rich proxy on coffea-casa.
+
+    The Rich proxy on coffea-casa buffers output and its flush() can recurse infinitely
+    when triggered while the buffer is non-empty. Writing to rich_proxied_file bypasses
+    this entirely, matching the fix already applied to _print_summary in render.py.
+    """
+    kwargs.setdefault("file", getattr(sys.stdout, "rich_proxied_file", sys.stdout))
+    print(*args, **kwargs)
 
 
 def _call_builder(fn, *args, config=None, out=None, builder_params=None, executor=None):
@@ -25,7 +38,6 @@ def _call_builder(fn, *args, config=None, out=None, builder_params=None, executo
         for k, v in builder_params.items():
             if k in sig:
                 kwargs[k] = v
-        print(f"\nkwargs: {kwargs}")
     return fn(*args, **kwargs)
 
 def build_executor(ec: "ExecutorConfig | None", facility: "FacilityBase | None" = None):

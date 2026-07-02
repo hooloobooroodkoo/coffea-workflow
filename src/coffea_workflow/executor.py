@@ -6,6 +6,7 @@ from .artifacts import Artifact
 from .producers import get_producer
 from .deps import Deps
 from .config import RunConfig
+from .producers_utils import _safe_print
 
 class Executor:
     """
@@ -91,7 +92,7 @@ class Executor:
             return out
         if not getattr(art, "always_rerun", False) and self.exists(art, config=effective_config):
             self._session_cache.add(out)
-            print(f"Extracted from cache: {out}")
+            _safe_print(f"Extracted from cache: {out}")
             return out
 
         fn = get_producer(type(art))

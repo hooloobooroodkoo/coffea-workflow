@@ -1,6 +1,5 @@
 import dataclasses
 import json
-import sys
 import typing
 import cloudpickle
 from .config import RunConfig
@@ -8,6 +7,7 @@ from .workflow import Workflow, Step
 from .artifacts import ArtifactBase, Fileset, Analysis, Plotting, CustomArtifact
 from pathlib import Path
 from .executor import Executor
+from .producers_utils import _safe_print
 
 
 def _topo_order(num_steps, edges):
@@ -85,39 +85,34 @@ def _load_step_result(step_type, path: Path):
 
 
 def _print_summary(step_results: dict) -> None:
-    # console.print() recursive flush() call was causing seeing
-    # the same non-empty buffer and recurses infinitely. Resulting in printing summary infinitely.
-    # to fix the bug proxy should be bypassed entirely
-    # by writing to the underlying stream (IPython OutStream on coffea-casa).
-    out = getattr(sys.stdout, "rich_proxied_file", sys.stdout)
-    print("\n=== Run Summary ===", file=out)
+    _safe_print("\n=== Run Summary ===")
     for name, (step_type, result) in step_results.items():
         if step_type is Analysis and result is not None:
             ok = result["n_chunks_ok"]
             total = result["n_chunks_total"]
             failures = result["failures"]
             marker = "✓" if not failures else "!"
-            print(f"  {marker}  {name:<30} {step_type.__name__:<20} {ok}/{total} chunks OK", file=out)
+            _safe_print(f"  {marker}  {name:<30} {step_type.__name__:<20} {ok}/{total} chunks OK")
             for f in failures:
-                print(f"       FAILED {f['chunk_file']}: {f['error']}", file=out)
+                _safe_print(f"       FAILED {f['chunk_file']}: {f['error']}")
         else:
-            print(f"  ✓  {name:<30} {step_type.__name__}", file=out)
-    print(file=out)
+            _safe_print(f"  ✓  {name:<30} {step_type.__name__}")
+    _safe_print()
 
 
 def _print_dag(workflow: Workflow) -> None:
-    print("Workflow DAG:")
+    _safe_print("Workflow DAG:")
     if not workflow.steps:
-        print("  (no steps)")
+        _safe_print("  (no steps)")
         return
     for idx, step in enumerate(workflow.steps):
-        print(f"  [{idx}] {step.name} -> {step.step_type.__name__} builder={step.builder}")
+        _safe_print(f"  [{idx}] {step.name} -> {step.step_type.__name__} builder={step.builder}")
     if workflow.edges:
-        print("Edges:")
+        _safe_print("Edges:")
         for src, dst in workflow.edges:
-            print(f"  {workflow.steps[src].name} -> {workflow.steps[dst].name}")
+            _safe_print(f"  {workflow.steps[src].name} -> {workflow.steps[dst].name}")
     else:
-        print("Edges: (none)")
+        _safe_print("Edges: (none)")
 
 
 def _resolve_step_config(workflow_config: RunConfig, step: Step) -> RunConfig:
@@ -167,11 +162,11 @@ def run(workflow: Workflow, config: RunConfig):
         artifact = _build_artifact(step.step_type, step_name, step.builder, step.builder_params, upstream)
 
         effective_config = _resolve_step_config(config, step)
-        print(
+        _safe_print(
             f"Executing step '{step_name}' of type '{step.step_type.__name__}' with the user code {step.builder} and user parameters {step.builder_params}"
         )
         path = executor.materialize(artifact, config=effective_config)
-        print(f"  -> materialized at {path}")
+        _safe_print(f"  -> materialized at {path}")
 
         artifact_by_idx[idx] = artifact
         paths_by_name[step_name] = path

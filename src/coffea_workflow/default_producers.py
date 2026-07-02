@@ -9,7 +9,7 @@ from .producers import producer
 from .config import RunConfig
 from coffea.processor import accumulate
 from coffea.dataset_tools.splitting import hash_fileset
-from .producers_utils import _call_builder, _extract_acc, _load_object, _split_fileset, _load_artifact_output
+from .producers_utils import _call_builder, _extract_acc, _load_object, _split_fileset, _load_artifact_output, _safe_print
 
 @producer(Fileset)
 def make_fileset(*, art: Fileset, deps: Deps, out: Path, config: RunConfig) -> None:
@@ -101,14 +101,14 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
 
     chunks_files_num = manifest["n_chunks"]
     if chunks_files_num > 1:
-        print(f"\nSplit strategy applied, starting independent processing of {chunks_files_num} fileset subsets...\n")
+        _safe_print(f"\nSplit strategy applied, starting independent processing of {chunks_files_num} fileset subsets...\n")
     else:
-        print(f"\nNo split strategy was specified, proceed with processing the whole fileset...")
+        _safe_print(f"\nNo split strategy was specified, proceed with processing the whole fileset...")
 
     if config.chunk_fraction is not None:
         n = max(1, round(len(chunks_entries) * config.chunk_fraction))
         chunks_entries = chunks_entries[:n]
-        print(f"chunk_fraction={config.chunk_fraction}: processing {n} of {manifest['n_chunks']} chunks")
+        _safe_print(f"chunk_fraction={config.chunk_fraction}: processing {n} of {manifest['n_chunks']} chunks")
 
     merged_acc = None
     metrics_merged = None
@@ -188,7 +188,7 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
         ]
 
         if uncached_indices:
-            print(f"Submitting {len(uncached_indices)} chunks in parallel...")
+            _safe_print(f"Submitting {len(uncached_indices)} chunks in parallel...")
             futures = {}
             for i in uncached_indices:
                 ca = chunk_arts[i]
@@ -207,23 +207,23 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
         for i, (entry, ca) in enumerate(zip(chunks_entries, chunk_arts)):
             chunk_file = entry["file"]
             chunk_out_dir = deps._executor.path_for(ca)
-            print("------------------------------------")
-            print(f"Processing {chunk_file}")
+            _safe_print("------------------------------------")
+            _safe_print(f"Processing {chunk_file}")
             result = cloudpickle.loads((chunk_out_dir / "payload.pkl").read_bytes())
             if result.is_ok():
-                print("Successfully processed!")
+                _safe_print("Successfully processed!")
                 acc, metrics = _extract_acc(result)
                 merged_acc = accumulate([acc], accum=merged_acc)
                 metrics_merged = accumulate([metrics], accum=metrics_merged)
             else:
-                print("Failure caught!")
+                _safe_print("Failure caught!")
                 failures.append({"chunk_file": chunk_file, "error": str(result)})
     else:
         for entry in chunks_entries:
             chunk_file = entry["file"]
             chunk_hash = entry["hash"]
-            print("------------------------------------")
-            print(f"Processing {chunk_file}")
+            _safe_print("------------------------------------")
+            _safe_print(f"Processing {chunk_file}")
             chunk_art = ChunkAnalysis(
                 chunk_file=chunk_file,
                 chunk_hash=chunk_hash,
@@ -237,7 +237,7 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
     
             #TODO: if config contains histserv_connection_info, then use the connection and add to the hist server, otherwise 
             if result.is_ok():
-                print("Successfully processed!")
+                _safe_print("Successfully processed!")
                 acc, metrics = _extract_acc(result)
                 if config.hist_client is not None:
                     # acc is already connection_info (returned directly from run_analysis)
@@ -247,7 +247,7 @@ def execute_analysis(*, art: Analysis, deps: Deps, out: Path, config: RunConfig)
                     merged_acc = accumulate([acc], accum=merged_acc) # accumulatable
                 metrics_merged = accumulate([metrics], accum=metrics_merged)
             else:
-                print("Failure caught!")
+                _safe_print("Failure caught!")
                 failures.append({"chunk_file": chunk_file, "error": str(result)})
                 continue
 
