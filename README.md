@@ -1,13 +1,13 @@
 # coffea-workflow
 
-A lightweight, DAG-based workflow engine for coffea-style analyses built on top of [coffea](https://github.com/scikit-hep/coffea). It aims to give physicists a structured, reproducible, and fault-tolerant way to express an analysis: fileset discovery and creation -> chunk-level (chunk as a subset of a fileset, not as a coffea chunk of 50k events) processing and histogramming -> plotting. It creates from the analysis a directed acyclic graph (DAG) with a minimal learning curve and frameworks commonly used in physical analysis already implemented.
+A workflow manager and HEP-specific extension for [coffea](https://github.com/scikit-hep/coffea) analyses. It does not replace existing workflow managers (Snakemake, LAW, …) — instead it focuses on three things coffea alone does not provide out of the box:
 
-This extension allows:
-1. To define a clear structure and the steps of analysis.
-2. To apply a split strategy to enable the partial result or to run the analysis on a smaller part of the fileset(specifying a certain dataset, or a small percentage mix of datasets files, or every N% files per each dataset).
-3. To cache successfully produced results of the chunk analysis and to only rerun the analysis over the failed subset of files.
-4. To map the analysis to a workflow language (TODO! support Snakemake and law)
- 
+- **Partial results** — split your fileset into independently cached chunks; if some fail you keep the rest, and only the failed chunks are retried on the next run
+- **Facility factories** — one-line switching between local execution, [coffea-casa](https://coffea-casa.readthedocs.io), and CERN lxplus (HTCondor) without changing your analysis code
+- **Execution control** — choose between sequential and parallel chunk submission, tune executor type and worker count per facility
+
+Your analysis code stays unchanged and fully separate from the execution logic. The only shift in thinking is structural: instead of one monolithic script, you organise the code around the natural stages of a HEP pipeline — fileset discovery, running the processor, plotting, and so on — and hand each stage to the workflow as a step. How you write each function is up to you.
+
 ---
 
 ## Why coffea-workflow
@@ -20,19 +20,22 @@ Without a pre-defined workflow layer, coffea users tend to write ad-hoc scripts 
  
 `coffea-workflow` addresses this by:
  
-- Defining each stage as a typed, hashable **Artifact** with a deterministic *identity* derived from its inputs.
-- Storing every produced artifact on disk in a **content-addressable cache** (`.cache/`), so any step whose inputs have not changed is simply loaded from disk on the next run.
-- Running user code through defined **step producers**, keeping the framework logic(splitting strategy, caching, re-running, histserv client handling, etc.) cleanly separated from the user's analysis code.
-- Providing built-in **chunk-level fault tolerance**: if 4 out of 5 chunks(fileset subsets) succeed and one fails (e.g. a broken XRootD endpoint), the successful chunks are preserved and the partial result is returned, and only the failed chunk is retried on the next run.
-- Explicit Python API — no special decorators on user code, no yaml files (beyond accepting a `config` parameter when [`histserv`](https://github.com/pfackeldey/histserv/tree/main) is used, explained below).
+- Defining each stage as a typed, hashable **Artifact** with a deterministic identity derived from its inputs.
+- Storing every produced artifact in a **content-addressable cache** (`.cache/`), so any step whose inputs have not changed is loaded from disk on the next run.
+- Providing **chunk-level fault tolerance**: if 4 out of 5 chunks succeed and one fails (e.g. a broken XRootD endpoint), the successful chunks are preserved and only the failed chunk is retried on the next run.
+- Keeping **framework logic cleanly separated** from analysis code — no decorators on your functions, no YAML.
+
 ---
 
 ## Installation
- 
-`coffea-workflow` requires a fork of coffea that exposes `use_result_type=True` on `processor.Runner`, enabling the `Ok`/`Err` result-type pattern used by the fault-tolerance mechanism. This is available on the `processor_result_type` branch of this [fork](https://github.com/hooloobooroodkoo/coffea/tree/processor_result_type) as for now (it will soon be added to the main repository master branch).
- 
-### Install the forked coffea in development mode
- 
+
+`coffea-workflow` requires a fork of coffea that exposes `use_result_type=True` on `processor.Runner`, enabling the `Ok`/`Err` result-type pattern used by the fault-tolerance mechanism. This is available on the `processor_result_type` branch of this [fork](https://github.com/hooloobooroodkoo/coffea/tree/processor_result_type) (it will be added to the main coffea repository soon).
+
+<!-- TODO: once the project is transferred to the coffea team and both packages are on PyPI,
+     replace both blocks below with a single: pip install coffea-workflow -->
+
+### Install the forked coffea
+
 ```bash
 git clone https://github.com/hooloobooroodkoo/coffea.git
 cd coffea
@@ -40,58 +43,210 @@ git checkout processor_result_type
 python -m pip install .
 cd ..
 ```
- 
+
 ### Install coffea-workflow
- 
-`coffea-workflow` is currently installed directly from its Git repository:
- 
+
 ```bash
 git clone https://github.com/hooloobooroodkoo/coffea-workflow-engine.git
 cd coffea-workflow-engine
 python -m pip install .
 ```
- 
+
 ### Optional — histserv
- 
-If you want to use the histogram server backend [histserv](https://github.com/pfackeldey/histserv):
- 
+
 ```bash
 pip install histserv
 ```
- 
+---
+
+## Quick Start
+
+Separate your analysis into stand-alone functions, one per workflow stage:
+
+```python
+# analysis.py
+
+def get_fileset():
+    return {
+        "SingleMuon_2018A": {
+            "files": {"root://cmsxrootd.fnal.gov//store/...": "Events"},
+        }
+    }
+
+def run_analysis(fileset, executor):
+    # your existing coffea processor call here — return Ok(output) or Err(exception)
+    result = processor.Runner(executor=executor, ...)(fileset, ...)
+    return result
+
+def plot_results(analysis_output):
+    ...
+```
+
+Then wire them together in a notebook or script:
+
+```python
+from coffea_workflow import Step, Workflow, Fileset, Analysis, Plotting, RunConfig, ExecutorConfig, run
+from coffea_workflow import facilities
+from analysis import get_fileset, run_analysis, plot_results
+
+# 1. Define steps — map artifact types to your functions
+step_fileset  = Step(name="Fileset",  step_type=Fileset,  builder=get_fileset,
+                     output="fileset")
+step_analysis = Step(name="Analysis", step_type=Analysis, builder=run_analysis,
+                     input="fileset",  output="histograms")
+step_plotting = Step(name="Plotting", step_type=Plotting, builder=plot_results,
+                     input="histograms")
+
+# 2. Build the DAG
+workflow = Workflow()
+workflow.add(step_fileset)
+workflow.add(step_analysis, depends_on=[step_fileset])
+workflow.add(step_plotting, depends_on=[step_analysis])
+
+# 3. Configure and run
+config = RunConfig(
+    strategy="by_dataset",  # datasets are processed independently
+    facility=facilities.coffea_casa,
+    executor_config=ExecutorConfig(executor_type="DaskExecutor", workers=4),
+    cache_dir=".cache",
+)
+run(workflow, config)
+```
+
+That is the whole API surface. `coffea-workflow` handles caching, splitting, fault-tolerance, and client setup for the environment automatically.
+
+---
+
+## Key Features
+
+### Split Strategies
+
+`coffea-workflow` breaks the fileset into independent *chunks* (subsets of the fileset) before running. Each chunk is a sub-fileset processed and cached on its own, so partial results are preserved even when some chunks fail.
+
+> **Important distinction:** these are *workflow-level* chunks (sub-filesets), not coffea's internal 50k-event chunks. A single workflow chunk may still contain many coffea-level event batches.
+
+| Strategy | Chunks | Best for |
+|---|---|---|
+| `strategy=None` (default) | 1 whole fileset | small tests, single-dataset runs |
+| `strategy="by_dataset"` | 1 per dataset | multi-dataset runs, dataset-level fault isolation |
+| `strategy=None, percentage=20` | 5 mixed across all datasets | quick sanity checks on a representative slice |
+| `strategy="by_dataset", percentage=20` | 5 per dataset (15 total for 3 datasets) | large filesets, maximum fault tolerance |
+
+**Smaller chunks preserve more work on failure** — only the failed chunk is retried, not the whole analysis. However, very small chunks add scheduling overhead on batch systems (more HTCondor job submissions). See [examples/showcase/split_strategy/](examples/showcase/split_strategy/) for a worked notebook of each strategy.
+
+```python
+# One chunk per dataset — if one dataset's storage fails, the others succeed
+RunConfig(strategy="by_dataset")
+
+# Split each dataset into 5 chunks of 20% each
+RunConfig(strategy="by_dataset", percentage=20)
+
+# Only run over specific datasets (e.g. for a quick test)
+RunConfig(datasets=["SingleMuon_2018A"])
+```
+
+---
+
+### Facility Factories
+
+Switching execution environments is a one-line change in `RunConfig`. Your analysis code is untouched.
+
+```python
+from coffea_workflow import facilities
+
+# Local — FuturesExecutor with N workers (default)
+config = RunConfig(facility=facilities.local)
+
+# coffea-casa — DaskExecutor connecting to the pre-configured Dask scheduler
+config = RunConfig(facility=facilities.coffea_casa)
+
+# CERN lxplus — HTCondor cluster, workers running inside an Apptainer image
+config = RunConfig(facility=facilities.LxplusFactory(
+    worker_image="~/worker.sif",
+    queue="longlunch",
+    workers=10,
+))
+```
+
+Each factory also accepts an `ExecutorConfig` that overrides the default executor type:
+```python
+config = RunConfig(
+    facility=facilities.local,
+    executor_config=ExecutorConfig(executor_type="IterativeExecutor"),  # single-threaded
+)
+```
+
+#### lxplus deployment
+
+If you have no `worker.sif` yet, run your script locally first — `LxplusFactory` generates `worker.def` and `run_on_lxplus.sh` with exact build and run instructions. You can also generate the Apptainer definition file manually:
+
+```python
+from coffea_workflow.facilities import generate_apptainer_def
+generate_apptainer_def(extra_packages=("correctionlib==2.1.0",))
+```
+
+See [examples/showcase/facilities/](examples/showcase/facilities/) for a full worked example.
+
+---
+
+### Sequential vs Parallel Chunk Execution
+
+By default, `coffea-workflow` processes workflow chunks **sequentially**: one chunk is submitted to the executor, runs to completion, its result is cached, then the next chunk starts. This is the safer default because all N workers collaborate on a single chunk's event-level tasks.
+
+**When to prefer sequential (default):**
+- You have more workers than chunks — all workers collaborate per chunk and self-balance across its tasks
+- Chunks have unequal file counts — avoids the slowest-chunk bottleneck that parallel dispatch creates
+
+**When to consider parallel:**
+- You have many more chunks than workers and they are roughly equal in size
+- You want to minimise scheduler round-trip overhead on coffea-casa (Dask cluster is persistent)
+
+```python
+# Sequential (default) — one chunk at a time, all workers per chunk
+config = RunConfig(
+    facility=facilities.coffea_casa,
+    executor_config=ExecutorConfig(executor_type="DaskExecutor"),
+)
+
+# Parallel — all chunks submitted simultaneously, one worker per chunk
+config = RunConfig(
+    facility=facilities.coffea_casa,
+    executor_config=ExecutorConfig(executor_type="DaskExecutor", parallel_chunks=True),
+)
+```
+
+A worked analysis of the trade-offs is in [examples/showcase/optimisation/](examples/showcase/optimisation/).
+
 ---
  
 ## Repository structure
- 
+
 ```
 coffea-workflow/
 ├── src/
-│   └── workflow/
-│       ├── __init__.py          # public re-exports: Step, Workflow, render, RunConfig,
-│       │                        #   Fileset, Analysis, Plotting
-│       ├── artifacts.py         # ArtifactBase, Artifact Protocol, all concrete Artifact classes(Fileset, Analysis, Plotting, CHunking, CHunkAnalysis),
-│       │                        #   ARTIFACT_REGISTRY, _builder_key helper
-│       ├── config.py            # RunConfig dataclass (accepts optional split strategy, cache location, histserv connection information)
-│       ├── deps.py              # Deps helper — calls materialize() for yet unproduced dependencies
-│       ├── executor.py          # Executor — cache lookup, materialization
-│       ├── identity.py          # SHA-256 content-addressable identity hashing
-│       ├── producers.py         # @producer decorator, _PRODUCERS registry, get_producer()
-│       ├── default_producers.py # Built-in producers for all available pre-defined artifact types
-│       ├── render.py            # render(), topological sort (_topo_order),
-│       │                        # starting the execution of the DAG
-│       └── workflow.py          # Step dataclass, Workflow DAG container
+│   └── coffea_workflow/
+│       ├── __init__.py            # public API: Step, Workflow, run, RunConfig,
+│       │                          #   Fileset, Analysis, Plotting, ExecutorConfig, facilities
+│       ├── artifacts.py           # Artifact classes (Fileset, Analysis, Plotting,
+│       │                          #   Chunking, ChunkAnalysis, CustomArtifact)
+│       ├── config.py              # RunConfig, ExecutorConfig, FacilityBase
+│       ├── facilities.py          # LocalFactory, CoffeaCasaFactory, LxplusFactory
+│       ├── default_producers.py   # Built-in producers for each artifact type
+│       ├── snakemake_producers.py # Standalone producers for Snakemake backend
+│       ├── executor.py            # Cache lookup and materialization
+│       ├── render.py              # run() — topological sort + DAG execution
+│       └── workflow.py            # Step dataclass, Workflow DAG container
 ├── examples/
-│   ├── coffea_workflow/         # Playground example: standard coffea accumulator, no histserv
-│   │   ├── workflow.ipynb       # Jupyter notebook with the workflow
-│   │   └── analysis.py          # User's functions for analysis: get_fileset, run_analysis, plot_results for Steps in the Workflow
-│   └── coffea_workflow_histserv/# Playground example: same analysis with histserv backend
-│       ├── workflow_hist.ipynb  # Jupyter notebook with the workflow
-│       └── analysis_hist.py      # User's functions for analysis
+│   ├── showcase/                  # Minimal MET analysis demonstrating all features
+│   │   ├── split_strategy/        # One notebook per split strategy
+│   │   ├── facilities/            # coffea-casa and lxplus worked examples
+│   │   └── optimisation/          # Sequential vs parallel benchmarks (in progress)
+│   ├── agc_ttbar/                 # Full AGC ttbar analysis with coffea-workflow
+│   ├── coffea_workflow/           # Simple accumulator example (no histserv)
+│   ├── coffea_workflow_histserv/  # Same analysis with histserv backend
+│   └── coffea_workflow_snakemake/ # Snakemake backend example (in progress)
 └── README.md
 ```
- 
-The user only interacts with the functionality that is written in `src/workflow/workflow.py` and `src/workflow/config.py`. Producers in `default_producers.py` can add logic from RunConfig on how to execute the code(splitting, caching, merging), but the analysis-specific logic lives exclusively in the user's own Python module within functions. Then, the corresponding producer maps the step_type(Fileset, Analysis, Plotting) to the corresponding builder (user's function from analysis file) while optionally applying from RunConfig specific management of the workflow execution.
- 
 ---
  
 ## Concepts
