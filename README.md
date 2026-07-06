@@ -250,385 +250,165 @@ coffea-workflow/
 ---
  
 ## Concepts
- 
+
 ### Workflow & Step
- 
-A **`Workflow`** is a container for a directed acyclic graph. It holds a list of **`Step`** objects and a list of directed edges `(src_index, dst_index)` expressing dependencies.
- 
+
+A **`Workflow`** is a container for a directed acyclic graph. It holds **`Step`** objects and directed dependency edges.
+
 ```python
 @dataclass(frozen=True)
 class Step:
-    name: str          # human-readable label; also used as a cache-path component
-    step_type: Type    # one of the external Artifact classes (Fileset, Analysis, Plotting)
-    builder: str | Callable  # pointer to user-provided function
+    name: str              # human-readable label; used as a cache-path component
+    step_type: Type        # Fileset, Analysis, or Plotting
+    builder: str | Callable  # pointer to your function
 ```
- 
-`builder` can be:
- 
-- A **module:attribute string**, e.g. `"analysis:create_fileset()"`
-- A **callable** (function or class) passed directly
- 
+
+`builder` can be a callable or a `"module:attribute"` string (e.g. `"analysis:plot_results"`).
+
 ```python
 workflow = Workflow()
 workflow.add(step_fileset)
 workflow.add(step_analysis, depends_on=[step_fileset])
 workflow.add(step_plotting, depends_on=[step_analysis])
 ```
- 
-`Workflow.add()` appends the step and records the dependency edges.
- 
----
 
-### Example 1 — Standard coffea accumulator
- 
-**Location:** `examples/coffea_workflow/`
- 
-**Files:**
-- `workflow.ipynb` — the main notebook that defines and executes the workflow.
-- `analysis.py` — user-written functions: `get_fileset`, `run_analysis`, `plot_results`.
-
-User have to structure the analysis by function, separating Fileset, Analysis and Plotting logics (as in `analysis.py`). Then struucture the workflow the following way:
-```python
-# workflow.ipynb
-
-from workflow import Step, Workflow, Fileset, Analysis, Plotting, RunConfig, render
-from analysis import get_fileset, run_analysis, plot_results
-
-# 1) decide on a name for caching, 2) specify the step type(Fileset, Analysis or Plotting artifacts), 3) map artifacts' builders to your functions
-step_fileset = Step(
-							        name="Fileset",
-							        step_type = Fileset,
-							        builder = get_fileset,
-							    )
-							    
-step_analysis = Step(
-						        name="SingleMuonAnalysis",
-						        step_type = Analysis,
-						        builder = run_analysis,
-						    )
-
-step_plotting = Step(
-										name="PlottingMuonAnalysis",
-										step_type = Plotting,
-										builder = "analysis:plot_results"
-								)		
-
-# add all steps to the workflow and specify dependencies							   
-workflow = Workflow()
-workflow.add(step_fileset)
-workflow.add(step_analysis, depends_on=[step_fileset])
-workflow.add(step_plotting, depends_on=[step_analysis])
-
-# decide on a split strategy for a fileset, where to store the partial result, optionaly histserv information
-config = RunConfig(percentage=20, cache_dir="cache")
-
-# execute the workflow with configurations
-result = render(workflow, config)
-```
 ---
 
 ### Artifacts
- 
-An **Artifact** is the typed, hashable representation of one unit of work and its output.
-The `type_name` property returns the class name (e.g. `"Analysis"`). Combined with `identity()`, the executor stores every artifact at:
- 
+
+An **Artifact** is the typed, hashable representation of one unit of work and its output. The executor stores every artifact at:
+
 ```
 <cache_dir>/<type_name>/<identity>/
 ```
- 
-Artifacts are divided into **external** (user-visible, declared in a `Step`, such as `Fileset`, `Analysis` and `Plotting`) and **internal** (created automatically by the framework as execution details). Users never interact with the internal `Chunking` or `ChunkAnalysis` directly, which handle splitting the fileset and processing the fileset per subset, but control their behaviour through `RunConfig`.
- 
-#### ★ Artifact Fileset (external)
- 
-```python
-@dataclass(frozen=True)
-class Fileset(ArtifactBase):
-    name: str
-    builder: str | Callable
-```
- 
-The entry point of every workflow. Its **producer** (`make_fileset`) resolves `builder` to a Python callable, calls it with no arguments, and expects a dict in the standard coffea fileset format:
- 
-```python
-{
-    "SingleMuon_2018": {
-        "files": {
-            "root://some-server.example.org//store/data/SingleMuon.root": "Events",
-            ...
-        },
-        "metadata": {...}
-    },
-    ...
-}
-```
- 
-The result is written to `.cache/Fileset/<identity>/fileset.json`.
 
-**The `builder` field** is the sole piece of user-supplied code at this stage. The builder function must:
-- Accept no arguments. (TODO: enable params for builder)
-- Return a dict matching the coffea fileset schema.
-Example:
- 
-```python
-def get_fileset():
-    return {
-        "SingleMuon_2018A": {
-            "files": {"root://cmsxrootd.fnal.gov//store/...": "Events"},
-        }
-    }
-```
+**External artifacts** (declared in `Step`, user-visible):
+
+| Artifact | Description |
+|---|---|
+| `Fileset` | Entry point. Builder returns a standard coffea fileset dict. Cached as `fileset.json`. |
+| `Analysis` | Central stage. Orchestrates chunking, runs your analysis function per chunk, merges results. Returns `payload.pkl`. |
+| `Plotting` | Consumes merged `Analysis` output. Always re-runs (`always_rerun = True`) — plots are fast and expected fresh. |
+
+**Internal artifacts** (created automatically, never user-facing):
+
+| Artifact | Description |
+|---|---|
+| `Chunking` | Splits the `Fileset` into `fileset_chunk_N.json` files per the configured strategy. |
+| `ChunkAnalysis` | Processes one chunk. Writes `.success` on success; its absence triggers a retry on the next run. |
+
 ---
- 
-#### ★ Artifact Analysis (external)
- 
-```python
-@dataclass(frozen=True)
-class Analysis(ArtifactBase):
-    name: str
-    fileset: Fileset
-    builder: str | Callable
-```
- 
-The central artifact. Its **producer** (`execute_analysis`) orchestrates the complete chunk-level fan-out calling split strategy function, then applying the user's analysis function per sub-fileset, then merging all the successful chunk results together(if local histogramming; if `histserv` is used, it returns the histserv connection information). It returns `payload.pkl` containing `{"merged": ..., "failures": [...], "n_chunks_total": N, "n_chunks_ok": M, "histserv_connection":{},}`. If any failures occurred, writes a `.has_failures` — this causes `executor.exists()` to return `False` on the next run, ensuring the Analysis is re-executed to attempt to repair missing chunks.
- 
----
- 
-#### ★ Artifact Plotting (external)
- 
-```python
-@dataclass(frozen=True)
-class Plotting(ArtifactBase):
-    always_rerun = True  # class-level flag
- 
-    name: str
-    analysis: Analysis
-    builder: str | Callable
-```
- 
-Consumes the merged output of an `Analysis` artifact and produces visualisations. Its producer calls the user's plotting function. Unlike all other artifacts, `Plotting` carries `always_rerun = True` at the class level, so it always produces the latest plot. User's builder should accept `config` if `histserv` is being used to reconnect to the remote histogram server and retrieve a snapshot.
- 
----
- 
-#### ★ Artifact Chunking (internal)
- 
-```python
-@dataclass(frozen=True)
-class Chunking(ArtifactBase):
-    fileset: Fileset
-    split_strategy: str | None
-    percentage: int | None
-    datasets: tuple[str, ...] | None
-```
- 
-It is created automatically by the `Analysis` producer before it loops over chunks. Its **producer** (`split_fileset`) reads `fileset.json` from the upstream `Fileset` cache entry and produces a directory containing:
- 
-- One or more `fileset_chunk_N.json` files — each a sub-fileset covering a specific slice of the full input fileset.
-- A `manifest.json` listing all chunk files and their count.
-The splitting behaviour can be specified in `RunConfig`.
- 
----
- 
-#### ★ Artifact ChunkAnalysis (internal)
- 
-```python
-@dataclass(frozen=True)
-class ChunkAnalysis(ArtifactBase):
-    chunk_file: str
-    chunking: Chunking
-    analysis_builder: str | Callable
-```
- 
-Represents the processing of a single chunk, users never create this; it is instantiated in a loop inside the `Analysis` producer. It reads the chunk's sub-fileset JSON and applies user's analysis function to it. It calls `fn(chunk_fileset)` or `fn(chunk_fileset, config=config)` if the function declares a `config` parameter (required for histserv integration, for example). It expects `Ok(accumulator)` or `Err(exception)` result type from a coffea processor. On success: writes `payload.pkl` and touches `.success`. On failure: writes only `payload.pkl` (containing the `Err`); the absence of `.success` is what tells subsequent runs that this chunk needs to be retried.
- 
----
+
 ## RunConfig
  
-`RunConfig` is a dataclass that carries all workflow-level configuration(split strategy, cache, histserv client. It is passed through the full call chain (render → executor → producer) so that every producer has access to the same global parameters. `RunConfig` is the single configuration object passed to `render()`.
- 
+`RunConfig` is the single configuration object passed to `run()`.
+
 ```python
 @dataclass(frozen=True)
 class RunConfig:
-    strategy: Literal["by_dataset"] | None = None
+    strategy: "by_dataset" | None = None
     percentage: int | None = None
     datasets: tuple[str, ...] | None = None
     cache_dir: Path = Path(".cache")
+    facility: FacilityBase | None = None
+    executor_config: ExecutorConfig | None = None
     hist_client: Any | None = None
     histserv_connection_info: dict | None = None
 ```
- 
+
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `strategy` | `"by_dataset"` or `None` | `None` | Chunk splitting strategy. `"by_dataset"` creates one chunk per dataset. `None` keeps all datasets in a single chunk or mixed in chunks if percentage is specified. |
-| `percentage` | `int` or `None` | `None` | When set, each chunk covers this percentage of each dataset's files. Must divide 100 evenly (e.g. 20, 25, 50). Combined with `strategy`: `strategy="by_dataset"` + `percentage=20` creates `n_datasets × 5` chunks. |
-| `datasets` | `tuple[str, ...]` or `None` | `None` | If set, only the named datasets are processed. Accepts a list (auto-converted to tuple for hashability). Useful for testing on a single dataset before running the full analysis. |
-| `cache_dir` | `Path` | `Path(".cache")` | Root directory for the content-addressable store. Each artifact type has a subdirectory here. |
-| `hist_client` | `histserv.Client` or `None` | `None` | A live histserv client object. When specified, the `Analysis` producer routes accumulated histograms to the remote server rather than pickling them locally. |
-| `histserv_connection_info` | `dict` or `None` | `None` | The serialisable connection info dict (`{"address": ..., "hist_id": ..., "token": ...}`) returned by `hist_client.init(...).get_connection_info()`. This is what gets stored in `Analysis`'s `payload.pkl` in histserv mode, providing a durable pointer to the histogram without requiring a live gRPC connection in the pickle file. |
+| `strategy` | `"by_dataset"` or `None` | `None` | `"by_dataset"` → one chunk per dataset; `None` → all datasets together |
+| `percentage` | `int` or `None` | `None` | Each chunk covers this % of each dataset's files (must divide 100 evenly, e.g. 20, 25, 50) |
+| `datasets` | `tuple[str, ...]` or `None` | `None` | Restrict to named datasets only; accepts a list (auto-converted to tuple) |
+| `cache_dir` | `Path` | `Path(".cache")` | Root of the content-addressable store |
+| `facility` | `FacilityBase` or `None` | `None` | Which facility factory to use (local, coffea-casa, lxplus) |
+| `executor_config` | `ExecutorConfig` or `None` | `None` | Fine-grained executor control (type, workers) |
+| `hist_client` | `histserv.Client` or `None` | `None` | Live histserv client for remote histogram accumulation |
+| `histserv_connection_info` | `dict` or `None` | `None` | Serialisable pointer to a live histogram on the server |
 
 ---
  
-## Splitting Strategies
- 
-The splitting mechanism is the key to `coffea-workflow`'s fault tolerance. Rather than running all input files as one monolithic coffea job (which either fully succeeds or fully fails), the `Chunking` layer breaks the fileset into independently processable sub-filesets called *chunks*. Each chunk corresponds to exactly one `ChunkAnalysis` artifact with its own cache entry.
- 
-> **Important distinction**: these are *workflow-level* chunks (sub-filesets), not the usual coffea chunks of 50k events. A single workflow chunk may still contain many coffea-level chunks.
- 
-### `strategy=None` (default)
- 
-All datasets are kept together in a single chunk. This is equivalent to running a standard coffea job. Useful for small analyses or when debugging.
- 
-```
-manifest.json
-fileset_chunk_0.json   ← all datasets
-```
- 
-### `strategy="by_dataset"`
- 
-One chunk per dataset. If the fileset has three datasets, three `ChunkAnalysis` artifacts are created. If one dataset's files are on a temporarily unreachable storage element, the other two still succeed and their results are preserved.
- 
-```
-manifest.json
-fileset_chunk_0.json   ← SingleMuon_2018A
-fileset_chunk_1.json   ← SingleMuon_2018B
-fileset_chunk_2.json   ← SingleMuon_2018C
-```
- 
-### `strategy=None` + `percentage=20`
- 
-The fileset is split into `100 / 20 = 5` chunks, each containing 20% of every dataset's files. 
- 
-```
-manifest.json
-fileset_chunk_0.json   ← files 0–20% of each dataset
-fileset_chunk_1.json   ← files 20–40% of each dataset
-...
-fileset_chunk_4.json   ← files 80–100% of each dataset
-```
- 
-### `strategy="by_dataset"` + `percentage=20`
- 
-Each dataset is first isolated into its own group, then each group is split at 20% intervals. For three datasets this yields `3 × 5 = 15` independent chunks.
- 
----
+### Producers
 
-## Producers
- 
-A **producer** is a Python function registered for producing a certain Artifact type:
- 
-```python
-@producer(Fileset)
-def make_fileset(*, art: Fileset, deps: Deps, out: Path, config: RunConfig) -> None:
-    ...
-```
-Users never write producers themselves. They only write the **builder functions** that are *called by* the producers.
- 
+A **producer** is the framework function that materialises an artifact. Users never write producers — they only write the **builder functions** that producers call. Built-in producers handle splitting, caching, merging, and executor selection automatically.
+
 ---
  
-## Executor
- 
-`Executor` is instantiated once per `render()` call and holds cache_dir, checks the existence of the artifact in the current session cache, and either materializes the non-existing one or the one that contains `.has_failers` or just returns the artifact from cache:
- 
-| Artifact | Expected Output |
-|---|---|
-| `Fileset` | `fileset.json` |
-| `Chunking` | `manifest.json` |
-| `ChunkAnalysis` | `.success` |
-| `Analysis` | `payload.pkl` **and** no `.has_failures` otherwise rerun|
-| `Plotting` | `payload.pkl` |
- 
-`Plotting` sets `always_rerun = True` on the class so plots are regenerated every run (they are typically fast and users expect to see fresh output).
- 
+### Executor
+
+`Executor` is instantiated once per `run()` call. For each artifact it checks the cache and either returns the cached result or calls the appropriate producer to materialise it.
+
+| Artifact | Cache sentinel | Re-run condition |
+|---|---|---|
+| `Fileset` | `fileset.json` | inputs changed |
+| `Chunking` | `manifest.json` | inputs changed |
+| `ChunkAnalysis` | `.success` | `.success` absent |
+| `Analysis` | `payload.pkl` + no `.has_failures` | `.has_failures` present |
+| `Plotting` | — | always (`always_rerun = True`) |
+
 ---
  
-## render
+## run
  
-`render(workflow: Workflow, config: RunConfig) -> dict` is the single entry point that the user specifies to execute the entire workflow:
+`run(workflow: Workflow, config: RunConfig) -> dict` is the single entry point that the user specifies to execute the entire workflow:
  
 ```python
-result = render(workflow, config)
+result = run(workflow, config)
 ```
 
 Runs a **topological sort**  over the step graph, materializes needed artifacts and prints the summary.
 
 ---
  
-## histserv
- 
-[histserv](https://github.com/pfackeldey/histserv) is a histogram accumulation server. `coffea-workflow` integrates with `histserv` through `RunConfig`.
- 
-### How it works
- 
-1. Before calling `render()`, the user creates a `histserv.Client`, initialises a histogram template on the server, and preserves the *connection info*.
-2. The client and the connection info are passed into `RunConfig`.
-3. The `Analysis` producer, upon seeing a successful chunk result, does **not** merge into a local accumulator.
-4. The `Plotting` producer passes to a user's builder function the connection information to reconnect and extract the histogram.
-   
-### Reconnecting across sessions
- 
-If you interrupt and resume a workflow that was using histserv, you can reconnect to the already-filled histogram by reading the connection info stored in the previous Analysis result and passing it back into `RunConfig`:
- 
+## histserv Integration
+
+[histserv](https://github.com/pfackeldey/histserv) is a remote histogram accumulation server. When configured, the `Analysis` producer routes chunk results to the server instead of merging locally.
+
 ```python
-# On subsequent run, re-use the existing histogram
-conn = previous_result["results"]["AnalysisStepName"]["merged"]
-config = RunConfig(
-    hist_client=hist_client,
-    histserv_connection_info=conn,
-    ...
-)
-```
- 
----
- 
-## Example 2 — With histserv
- 
-**Location:** `examples/coffea_workflow_histserv/`
- 
-**Files:**
-- `workflow_hist.ipynb` — the main notebook, structurally identical to Example 1 but with histserv wiring.
-- `analysis_hist.py` — user-supplied functions: `get_fileset`, `run_analysis`, `plot_results`, `hist_template`.
-This example demonstrates the full histserv integration path. The `run_analysis` function accepts a `config` keyword argument, extracts `config.hist_client` and `config.histserv_connection_info`, reconnects to the remote histogram, fills it via the normal coffea processor flow, and returns the connection info (not the histogram itself) wrapped in `Ok(...)`.
- 
-Key differences from Example 1:
- 
-```python
-# workflow_hist.ipynb
 import histserv
- 
-# 1. Create a client and initialise a histogram on the server
+
 hist_client = histserv.Client(address="histserv.cmsaf-dev.flatiron.hollandhpc.org:8788")
 histserv_connection_info = hist_client.init(hist=hist_template(), token="test").get_connection_info()
- 
-# 2. Thread both into RunConfig
+
 config = RunConfig(
     hist_client=hist_client,
     histserv_connection_info=histserv_connection_info,
     strategy="by_dataset",
     percentage=20,
-    cache_dir="cache_hist",
 )
-
-
-
-# analysis_hist.py
-
-# 3. Changes in user-written function, Analysis builder(run_analysis) and Plotting builder(plot_results) must accept `config` with the histserv information and reconnect to it
-def run_analysis(fileset, config):
-    hist_client = config.hist_client
-    conn = config.histserv_connection_info
-    remote_hist = hist_client.connect(hist_id=conn["hist_id"], token=conn["token"])
-
-# 4. The `hist_template()` function defines the histogram axes:
-def hist_template():
-    dataset_axis = hist.axis.StrCategory(name="dataset", label="", categories=[], growth=True)
-    MET_axis = hist.axis.Regular(name="MET", label="MET [GeV]", bins=50, start=0, stop=100)
-    return hist.Hist(dataset_axis, MET_axis)
 ```
+
+Your `run_analysis` and `plot_results` functions accept a `config` keyword argument to access the connection info and reconnect to the remote histogram. If you interrupt and resume a workflow, pass the stored connection info back into `RunConfig`:
+
+```python
+conn = previous_result["results"]["Analysis"]["merged"]
+config = RunConfig(hist_client=hist_client, histserv_connection_info=conn, ...)
+```
+
+See [examples/coffea_workflow_histserv/](examples/coffea_workflow_histserv/) for a full worked example.
 
 ---
  
-## Mapping to Workflow Languages
- 
-### Snakemake and law backend (planned)
- 
-Integration with Snakemake and law as alternative execution backends is a planned feature. The design intent is to allow the same `Workflow` + `RunConfig` definition to be *compiled* to a `Snakefile` or a set of law `Task` classes, enabling users who already operate Snakemake or law pipelines on their HPC clusters to plug `coffea-workflow` analyses into their existing infrastructure without rewriting anything.
- 
+## Snakemake Backend (planned)
+
+Integration with Snakemake as an alternative execution backend is a planned feature. The design intent is to allow the same `Workflow` + `RunConfig` definition to be compiled to a `Snakefile`, enabling analyses to plug into existing Snakemake pipelines on HPC clusters without rewriting anything. A prototype is available in [examples/coffea_workflow_snakemake/](examples/coffea_workflow_snakemake/).
+
+---
+
+## Examples
+
+| Location | What it shows |
+|---|---|
+| [examples/showcase/split_strategy/](examples/showcase/split_strategy/) | One notebook per split strategy, sharing a common analysis |
+| [examples/showcase/facilities/](examples/showcase/facilities/) | Switching between local, coffea-casa, and lxplus |
+| [examples/showcase/optimisation/](examples/showcase/optimisation/) | Sequential vs parallel execution benchmarks (in progress) |
+| [examples/coffea_workflow/](examples/coffea_workflow/) | Simple accumulator workflow (no histserv) |
+| [examples/coffea_workflow_histserv/](examples/coffea_workflow_histserv/) | Same workflow with the histserv histogram server |
+| [examples/agc_ttbar/](examples/agc_ttbar/) | Full AGC ttbar analysis |
+
+---
+
+## Acknowledgements
+
+`coffea-workflow` was developed by Yana Holoborodko. Contributions, bug reports, and feedback are welcome via GitHub issues.
