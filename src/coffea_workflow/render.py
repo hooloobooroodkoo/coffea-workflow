@@ -125,7 +125,9 @@ def _print_run_config(config: RunConfig) -> None:
     elif ec is not None:
         _safe_print(f"  Executor:  custom ({type(ec.executor).__name__})")
     else:
-        _safe_print(f"  Executor:  default (FuturesExecutor)")
+        default = getattr(config.facility, "default_executor_type", "FuturesExecutor") \
+                  if config.facility is not None else "FuturesExecutor"
+        _safe_print(f"  Executor:  default ({default})")
 
     fac = config.facility
     if fac is None:
@@ -181,30 +183,38 @@ def run(workflow: Workflow, config: RunConfig):
 
     order = _topo_order(num_steps, workflow.edges)
 
+    parents: dict[int, list[int]] = {i: [] for i in range(num_steps)}
+    for src, dst in workflow.edges:
+        parents[dst].append(src)
+
     artifact_by_idx = {}
     paths_by_name = {}
     step_results = {}  # name -> (step_type, loaded result)
 
-    for idx in order:
-        step = workflow.steps[idx]
-        step_name = step.name
+    try:
+        for idx in order:
+            step = workflow.steps[idx]
+            step_name = step.name
 
-        upstream = [artifact_by_idx[src] for src, dst in workflow.edges if dst == idx]
-        artifact = _build_artifact(step.step_type, step_name, step.builder, step.builder_params, upstream)
+            upstream = [artifact_by_idx[src] for src in parents[idx]]
+            artifact = _build_artifact(step.step_type, step_name, step.builder, step.builder_params, upstream)
 
-        effective_config = _resolve_step_config(config, step)
-        _safe_print(
-            f"Executing step '{step_name}' of type '{step.step_type.__name__}' with the user code {step.builder} and user parameters {step.builder_params}"
-        )
-        path = executor.materialize(artifact, config=effective_config)
-        _safe_print(f"  -> materialized at {path}")
-        _safe_print()
+            effective_config = _resolve_step_config(config, step)
+            _safe_print(
+                f"Executing step '{step_name}' of type '{step.step_type.__name__}' with the user code {step.builder} and user parameters {step.builder_params}"
+            )
+            path = executor.materialize(artifact, config=effective_config)
+            _safe_print(f"  -> materialized at {path}")
+            _safe_print()
 
-        artifact_by_idx[idx] = artifact
-        paths_by_name[step_name] = path
-        step_results[step_name] = (step.step_type, _load_step_result(step.step_type, path))
+            artifact_by_idx[idx] = artifact
+            paths_by_name[step_name] = path
+            step_results[step_name] = (step.step_type, _load_step_result(step.step_type, path))
 
-    _print_summary(step_results)
+        _print_summary(step_results)
+    finally:
+        if config.facility is not None:
+            config.facility.close()
 
     return {
         "paths": paths_by_name,
