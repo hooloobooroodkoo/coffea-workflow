@@ -1,0 +1,52 @@
+name: coffea compatibility
+
+# Runs the full test suite (incl. tests/test_coffea_compat.py) against the
+# newest coffea release on PyPI, so an upstream change to the API surface we
+# depend on (Runner(use_result_type=True), Ok/Err, split_fileset, ...) is
+# caught within a week instead of by a user.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch: # allow manual runs, e.g. right after a coffea release
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  latest-coffea:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package, then upgrade coffea to latest release
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+          python -m pip install --upgrade coffea
+          python -c "import coffea; print('testing against coffea', coffea.__version__)"
+
+      - name: Run test suite
+        run: python -m pytest
+
+      - name: Open issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          COFFEA_VERSION=$(python -c "import coffea; print(coffea.__version__)")
+          TITLE="Incompatible with coffea ${COFFEA_VERSION}"
+          if [ -z "$(gh issue list --state open --search "in:title \"$TITLE\"" --json number --jq '.[].number')" ]; then
+            gh issue create --title "$TITLE" --label bug --body \
+              "The scheduled compatibility run failed against coffea ${COFFEA_VERSION}.
+
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Likely causes: a change to \`Runner(use_result_type=True)\`, the \`Ok\`/\`Err\` result protocol, or \`coffea.dataset_tools.splitting\`. See \`tests/test_coffea_compat.py\` for the exact contract."
+          fi
