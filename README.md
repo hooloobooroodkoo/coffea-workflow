@@ -221,7 +221,6 @@ coffea-workflow/
 │       ├── config.py              # RunConfig, ExecutorConfig, FacilityBase
 │       ├── facilities.py          # LocalFactory, CoffeaCasaFactory, LxplusFactory
 │       ├── default_producers.py   # Built-in producers for each artifact type
-│       ├── snakemake_producers.py # Standalone producers for Snakemake backend
 │       ├── executor.py            # Cache lookup and materialization
 │       ├── render.py              # run() — topological sort + DAG execution
 │       └── workflow.py            # Step dataclass, Workflow DAG container
@@ -232,8 +231,7 @@ coffea-workflow/
 │   │   └── optimisation/          # Sequential vs parallel benchmarks (in progress)
 │   ├── agc_ttbar/                 # Full AGC ttbar analysis with coffea-workflow
 │   ├── coffea_workflow/           # Simple accumulator example (no histserv)
-│   ├── coffea_workflow_histserv/  # Same analysis with histserv backend
-│   └── coffea_workflow_snakemake/ # Snakemake backend example (in progress)
+│   └── coffea_workflow_histserv/  # Same analysis with histserv backend
 └── README.md
 ```
 ---
@@ -376,12 +374,6 @@ config = RunConfig(hist_client=hist_client, histserv_connection_info=conn, ...)
 ```
 
 See [examples/coffea_workflow_histserv/](examples/coffea_workflow_histserv/) for a full worked example.
-
----
- 
-## Snakemake Backend (planned)
-
-Integration with Snakemake as an alternative execution backend is a planned feature. The design intent is to allow the same `Workflow` + `RunConfig` definition to be compiled to a `Snakefile`, enabling analyses to plug into existing Snakemake pipelines on HPC clusters without rewriting anything. A prototype is available in [examples/coffea_workflow_snakemake/](examples/coffea_workflow_snakemake/).
 
 ---
 

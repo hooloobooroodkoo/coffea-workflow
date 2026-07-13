@@ -12,7 +12,7 @@ plain Python functions with the right signatures. The user should remember to sp
 | Function | Signature | What it does |
 |---|---|---|
 | `get_fileset()` | `() → dict` | Returns the XRootD fileset dictionary |
-| `run_analysis(fileset)` | `(dict) → result(Accumulatable + metrics(optional) or histserv connection information)` | Runs the coffea processor on one chunk |
+| `run_analysis(fileset, executor)` | `(dict, executor) → result(Accumulatable + metrics(optional) or histserv connection information)` | Runs the coffea processor on one chunk; the `executor` is injected by the workflow based on the configured facility |
 | `plot_results(result)` | `(result) → None` | Plots the merged accumulator |
 
 The second requirement is to use Result type (Ok or Err) of coffea processor:
@@ -29,19 +29,19 @@ run = processor.Runner(
 
 
 The functions are referenced by the workflow as plain callables.
-The example of this small code restructure can be found in [ttbar_analysis.py](https://github.com/hooloobooroodkoo/coffea-workflow/blob/main/examples/agc_ttbar/ttbar_analysis.py).
+The example of this small code restructure can be found in [ttbar_analysis.py](ttbar_analysis.py).
 
 ## How does the workflow look
 Functions from the analysis file should be mapped to a corresponding step_type. See in the example:
 ```python
-from workflow import Step, Workflow, Fileset, Analysis, Plotting, RunConfig, run
+from coffea_workflow import Step, Workflow, Fileset, Analysis, Plotting, RunConfig, run
 from ttbar_analysis import get_fileset, run_analysis, plotting_1
 
 # Step 1. defines steps, map them with your functions
 step_fileset = Step(
 							        name="Fileset_ttbar", # your custom name for a step
 							        step_type = Fileset, # predefined step type that calls the corresponding backend function
-							        builder = get_fileset, # your code fthat creates and returns the fileset
+							        builder = get_fileset, # your code that creates and returns the fileset
 							    )
 step_analysis = Step(
 						        name="Analysis_ttbar",

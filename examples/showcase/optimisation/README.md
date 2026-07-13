@@ -12,6 +12,9 @@ The goal of this section is to measure and compare the performance of the AGC tt
 Metrics to collect: wall-clock time, throughput (events/s), cache hit rate, failure recovery time?
 
 ## Sequential vs Parallel submission to Dask
+
+See [parallel_vs_sequential.ipynb](parallel_vs_sequential.ipynb) for the worked comparison on coffea-casa.
+
 Let's assume:
 We have N workers, M chunks (subsets), K event-range tasks per chunk:
 

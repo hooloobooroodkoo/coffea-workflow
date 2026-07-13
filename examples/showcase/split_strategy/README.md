@@ -61,6 +61,6 @@ RunConfig(strategy=None, percentage=50)
 ## Examples
 
 - [workflow_no_split.ipynb](workflow_no_split.ipynb) — `strategy=None`
-- [workflow_by_dataset.ipynb](workflow_by_dataset.ipynb) — `strategy="by_dataset"`
+- [workflow_split_by_dataset.ipynb](workflow_split_by_dataset.ipynb) — `strategy="by_dataset"`
 - [workflow_by_dataset_percentage.ipynb](workflow_by_dataset_percentage.ipynb) — `strategy="by_dataset"`, `percentage=50`
-- [workflow_mixed_percentage.ipynb](workflow_mixed_percentage.ipynb) — `strategy=None`, `percentage=50`
+- [workflow_percentage.ipynb](workflow_percentage.ipynb) — `strategy=None`, `percentage=50`

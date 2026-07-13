@@ -2,20 +2,27 @@
 
 Run the showcase analysis on CERN lxplus, submitting HTCondor batch jobs as Dask workers via `LxplusFactory`.
 
-## Step 1. Generate the Apptainer definition file
-If you need some custom or not provided by the lxplus base image packages for your analysis, you have to build your own apptainer. 
-Helping function `coffea_workflow.facilities.generate_apptainer_def(...)` creates this `worker.def` file that will be the base for the apptainer
-that contains user-specified packages, chosen base image, etc.
+Files in this example:
 
-Run [generate_def.ipynb](generate_def.ipynb) locally to write `worker.def`.
-It installs the needed coffea version for coffea-workflow (the one with the Runner parameter `use_result_type`) 
-and coffea-workflow itself from git into the CERN batch team's lxplus EL9 base image by default. But those parameters can be changed to those
-prefered by the user. It also provides an instruction on how to run the analysis on lxplus with your apptainer.
+- [run_workflow.py](run_workflow.py) — the workflow script (fileset → analysis → plotting with `LxplusFactory`)
+- [run_on_lxplus.sh](run_on_lxplus.sh) — wrapper that creates the VOMS proxy and runs the workflow inside the Apptainer image
+- [worker.def](worker.def) — Apptainer definition file for the worker image
+- [generate_def.ipynb](generate_def.ipynb) — optional: regenerate `worker.def` with custom package versions
+
+## Step 1. Run locally to generate the deployment files
+
+```bash
+python run_workflow.py
+```
+
+When run anywhere other than lxplus, `LxplusFactory.preflight()` writes `worker.def` and `run_on_lxplus.sh`, then prints the exact scp, build, and run commands for deployment.
+
+The default `worker.def` installs coffea (the version providing the `use_result_type` Runner parameter) and coffea-workflow on top of the CERN batch team's lxplus EL9 base image, which already ships XRootD and HTCondor. To pin versions or add extra packages, use [generate_def.ipynb](generate_def.ipynb), which calls `coffea_workflow.facilities.generate_apptainer_def(...)` with custom sources.
 
 ## Step 2. Build the image on lxplus
 
 ```bash
-scp worker.def <username>@lxplus.cern.ch:~/worker.def
+scp worker.def run_on_lxplus.sh run_workflow.py <username>@lxplus.cern.ch:~/
 ssh <username>@lxplus.cern.ch
 condor_submit -interactive        # get a batch node, wait for the shell
 cp ~/worker.def .  &&  apptainer build --fakeroot worker.sif worker.def
@@ -24,10 +31,13 @@ cp worker.sif ~/worker.sif        # save to AFS home (slow but persistent)
 
 ## Step 3. Run the workflow
 
+Back on a regular lxplus node, from the directory containing `worker.sif`:
+
 ```bash
-voms-proxy-init --voms cms --valid 192:00
-apptainer exec ~/worker.sif python ~/analysis/workflow_lxplus.py # run your workflow file for your analysis
+bash run_on_lxplus.sh
 ```
+
+The script creates the VOMS proxy, binds the HTCondor and Kerberos configuration into the container, and runs `run_workflow.py` inside `worker.sif`. On lxplus, `preflight()` verifies that HTCondor and `dask_jobqueue` are available and that the proxy is valid; if `worker_image` is not set, it picks up `worker.sif` from the current directory.
 
 ## How the Dask cluster is created
 
@@ -66,9 +76,3 @@ config = RunConfig(
     executor_config=ExecutorConfig(executor_type="DaskExecutor"),
 )
 ```
-
-In `coffea-workflow` `LxplusFactory.preflight()` is called automatically before the cluster is created. It checks whether:
-- VOMS proxy is valid
-- `condor_q` is available on PATH (confirms you are on an lxplus node)
-- `worker_image` path exists (raises with a `generate_apptainer_def()` suggestion if not)
-

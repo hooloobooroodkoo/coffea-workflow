@@ -1,16 +1,11 @@
 # CoffeaCasa + Dask
 
-Run the showcase analysis on [coffea-casa](https://coffea-casa.readthedocs.io), which provides a pre-configured Dask cluster at `tls://localhost:8786`.
+Run the showcase analysis on [coffea-casa](https://coffea-casa.readthedocs.io), which provides a pre-configured Dask cluster at `tls://localhost:8786`. No cluster setup is needed — `CoffeaCasaFactory` connects to the existing cluster, and can install extra packages or upload local files to the workers via `worker_packages` / `worker_files`.
 
-Describes examples when no setup is needed and `CoffeaCasaFactory` connects to the existing cluster. And also describes the cases where the workers are required too install additional packages.
+## Notebooks
 
-## Options shown
-
-- **Sequential** (`workflow_coffea_casa.ipynb`): fileset chunks are processed one after another using the split strategy. Simple, cache-friendly.
-- **Parallel** *(TODO)*: use `client.submit` + `IterativeExecutor` to dispatch multiple fileset subsets to the Dask cluster simultaneously, bypassing coffea-workflow's
-sequential chunk loop. *How to learn Dask to see one batch as one job? Bigger coffea-chunks?*
-- discuss the use case where you want to install some other packages on Dask workers and that
- some workers result in not having the environment updated while others do
+- [workflow_coffea_casa.ipynb](workflow_coffea_casa.ipynb) — **sequential** chunk processing with the split strategy, including a variant with an intentionally broken file to show chunk-level fault tolerance.
+- [../optimisation/parallel_vs_sequential.ipynb](../optimisation/parallel_vs_sequential.ipynb) — **parallel** chunk processing: `parallel_chunks=True` submits all uncached chunks to Dask workers at once via `client.submit`, with a timing comparison against the sequential mode.
 
 ## Current problems with DaskExecutor usage
 
@@ -22,9 +17,9 @@ Using `DaskExecutor` with `coffea-workflow`'s split strategy is currently unavai
    
 2. The natural fix is to install a consistent coffea version on workers at runtime via `worker_packages`. However, any runtime package installation requires restarting workers so the new version is actually loaded.
 
-3. Worker restarts breaks Dask scheduler. `FutureCancelledError: scheduler-restart`.
+3. Worker restarts break the Dask scheduler: `FutureCancelledError: scheduler-restart`.
 
-4. Without restart not all the workers use the newly PipInstalled version of coffea and some chunks break and return the error that `use_result_type` field wasn't found in the coffea Runner.
+4. Without a restart, not all workers use the newly pip-installed version of coffea, so some chunks break with an error that the `use_result_type` field wasn't found in the coffea Runner.
 
 5. The alternative — installing with `client.run()` then calling `client.restart()` explicitly. But `client.restart()` is a scheduler-level restart that also cancels any futures submitted after the install, making it impossible to pipeline setup and execution.
 
@@ -32,5 +27,7 @@ Using `DaskExecutor` with `coffea-workflow`'s split strategy is currently unavai
 
 ## What works
 
-As for now, before coffea-casa has the newest version of coffea, it's recommended to use lxplus + dask.
-`FuturesExecutor` runs locally on the notebook server using Python multiprocessing. 
+Until coffea-casa ships a recent enough coffea version in its worker image:
+
+- `FuturesExecutor` (the default) runs on the notebook server using Python multiprocessing and works reliably with all split strategies.
+- For genuine distributed `DaskExecutor` runs, use [lxplus](../lxplus/) instead, where you control the worker image.

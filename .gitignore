@@ -23,6 +23,7 @@ pip-wheel-metadata/
 *.log
 snalemake_workflow/
 cms-open-data-ttbar
+metrics/
 cache
 cache_hist
 .snakemake

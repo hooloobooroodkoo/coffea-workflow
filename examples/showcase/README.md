@@ -13,6 +13,7 @@ to showcase how coffea-workflow helps to preserve partial results and to run the
 | Directory | What it shows |
 |---|---|
 | [split_strategy/](split_strategy/) | How to split the fileset into chunks and the trade-offs of each approach |
+| [facilities/](facilities/) | Switching between local, coffea-casa, and lxplus factories and executor configs in one notebook |
 | [coffea_casa/](coffea_casa/) | Running with `CoffeaCasaFactory` and a Dask cluster |
 | [lxplus/](lxplus/) | Building an Apptainer image and running with `LxplusFactory` on CERN lxplus |
 | [optimisation/](optimisation/) | *(under development)* Performance measurements across facilities, executors, and split strategies |
