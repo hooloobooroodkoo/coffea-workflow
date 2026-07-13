@@ -40,3 +40,4 @@ dist
 utils.zip
 .cache_sequential_with_failure/
 .cache_parallel_with_failure/
+.cache*/
