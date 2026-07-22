@@ -154,6 +154,20 @@ class LocalFactory(FacilityBase):
     workers: int = 4
     scheduler_address: str | None = None
 
+    def preflight(self, ec: ExecutorConfig | None = None) -> None:
+        # A custom executor object needs no facility-level prerequisites.
+        if ec is not None and ec.executor is not None:
+            return
+        executor_type = ec.executor_type if ec is not None else "FuturesExecutor"
+        if executor_type == "DaskExecutor" and not self._dask_address(ec):
+            raise ValueError(
+                "LocalFactory with DaskExecutor requires a scheduler address.\n"
+                "Set scheduler_address= on LocalFactory or dask_scheduler= on ExecutorConfig."
+            )
+
+    def _dask_address(self, ec: ExecutorConfig | None) -> str | None:
+        return (ec.dask_scheduler if ec else None) or self.scheduler_address
+
     def build(self, ec: ExecutorConfig | None) -> Any:
         from coffea.processor import IterativeExecutor, FuturesExecutor, DaskExecutor
 
@@ -170,14 +184,9 @@ class LocalFactory(FacilityBase):
             return FuturesExecutor(workers=n)
 
         if executor_type == "DaskExecutor":
-            addr = (ec.dask_scheduler if ec else None) or self.scheduler_address
-            if not addr:
-                raise ValueError(
-                    "LocalFactory with DaskExecutor requires a scheduler address.\n"
-                    "Set scheduler_address= on LocalFactory or dask_scheduler= on ExecutorConfig."
-                )
+            self.preflight(ec)  # single source of truth for the address check
             from dask.distributed import Client
-            client = Client(addr)
+            client = Client(self._dask_address(ec))
             return DaskExecutor(client=client)
 
         raise ValueError(f"Unsupported executor_type: {executor_type!r}")
@@ -206,6 +215,17 @@ class CoffeaCasaFactory(FacilityBase):
     def __post_init__(self):
         self.worker_packages = tuple(self.worker_packages)
         self.worker_files = tuple(self.worker_files)
+
+    def preflight(self, ec: ExecutorConfig | None = None) -> None:
+        # A custom executor object needs no facility-level prerequisites.
+        if ec is not None and ec.executor is not None:
+            return
+        executor_type = ec.executor_type if ec is not None else "DaskExecutor"
+        if executor_type == "DaskExecutor" and not self.scheduler_address:
+            raise ValueError(
+                "CoffeaCasaFactory with DaskExecutor requires a scheduler address.\n"
+                "Set scheduler_address= on CoffeaCasaFactory."
+            )
 
     def build(self, ec: ExecutorConfig | None) -> Any:
         from coffea.processor import IterativeExecutor, FuturesExecutor, DaskExecutor
@@ -307,7 +327,7 @@ class LxplusFactory(FacilityBase):
         self.extra_pythonpath = tuple(self.extra_pythonpath)
         self._cluster = None
 
-    def preflight(self) -> None:
+    def preflight(self, ec: ExecutorConfig | None = None) -> None:
         hostname = socket.gethostname()
 
         if "lxplus" not in hostname:

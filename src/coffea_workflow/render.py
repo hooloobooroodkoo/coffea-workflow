@@ -169,7 +169,7 @@ def run(workflow: Workflow, config: RunConfig):
     and returning cached results where available.
     """
     if config.facility is not None:
-        config.facility.preflight()
+        config.facility.preflight(config.executor_config)
 
     cache_dir = Path(config.cache_dir)
     executor = Executor(cache_dir=cache_dir, config=config)

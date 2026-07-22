@@ -25,8 +25,12 @@ class FacilityBase(ABC):
     def build(self, ec: "ExecutorConfig | None") -> Any:
         """Build and return a coffea executor."""
 
-    def preflight(self) -> None:
-        """Check all prerequisites. Raise RuntimeError with an exact fix command if anything is missing."""
+    def preflight(self, ec: "ExecutorConfig | None" = None) -> None:
+        """Check all prerequisites. Raise RuntimeError with an exact fix command if anything is missing.
+
+        Receives the effective ExecutorConfig so facilities can validate executor-dependent
+        prerequisites (e.g. a Dask scheduler address) upfront, before any producer runs.
+        """
 
     def close(self) -> None:
         """Release resources created by build() (e.g. shut down a Dask cluster)."""
